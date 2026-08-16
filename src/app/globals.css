@@ -1,0 +1,202 @@
+@import 'tailwindcss';
+
+/*
+ * Dark-first palette. Defined as tokens so every surface, border and accent in
+ * the app resolves through the same scale.
+ */
+:root {
+  --bg: #0b0d12;
+  --surface: #11141b;
+  --surface-2: #161a23;
+  --surface-3: #1c212c;
+  --border: #242938;
+  --border-strong: #313749;
+  --text: #e8eaf0;
+  --text-muted: #9aa3b8;
+  --text-faint: #6b7488;
+  --accent: #6d5bf5;
+  --accent-hover: #7d6df7;
+  --accent-soft: rgba(109, 91, 245, 0.16);
+  --green: #22c55e;
+  --amber: #f59e0b;
+  --red: #f43f5e;
+  --blue: #38bdf8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+  border: 3px solid var(--bg);
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.btn:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.input {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 8px 11px;
+  font-size: 13px;
+  width: 100%;
+  outline: none;
+}
+.input:focus {
+  border-color: var(--accent);
+}
+
+/* --------------------------------------------------------------------------
+ * Editor surface
+ *
+ * The document is one pre-wrap container so a character index maps cleanly onto
+ * a DOM text offset -- which is what lets remote carets be positioned by
+ * measuring a Range rather than guessing at pixel maths.
+ * -------------------------------------------------------------------------- */
+
+.doc-surface {
+  position: relative;
+  white-space: pre-wrap;
+  word-break: break-word;
+  outline: none;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--text);
+  caret-color: var(--accent);
+  min-height: 320px;
+}
+
+.doc-surface[data-readonly='true'] {
+  caret-color: transparent;
+  color: var(--text-muted);
+}
+
+.mk-bold { font-weight: 700; }
+.mk-italic { font-style: italic; }
+.mk-underline { text-decoration: underline; }
+.mk-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--surface-3);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-size: 13px;
+}
+.mk-highlight { background: rgba(245, 158, 11, 0.28); border-radius: 3px; }
+.mk-heading1 { font-size: 26px; font-weight: 700; }
+.mk-heading2 { font-size: 20px; font-weight: 650; }
+.mk-heading3 { font-size: 16px; font-weight: 600; color: var(--blue); }
+
+.comment-anchor {
+  background: rgba(109, 91, 245, 0.18);
+  border-bottom: 2px solid var(--accent);
+  border-radius: 2px;
+  cursor: pointer;
+}
+.comment-anchor[data-resolved='true'] {
+  background: transparent;
+  border-bottom: 1px dashed var(--text-faint);
+}
+
+/* Remote awareness overlay: purely decorative, never intercepts input. */
+.overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+.remote-caret {
+  position: absolute;
+  width: 2px;
+  border-radius: 1px;
+  transition: top 90ms linear, left 90ms linear;
+}
+.remote-flag {
+  position: absolute;
+  top: -18px;
+  left: -1px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  padding: 1px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.remote-selection {
+  position: absolute;
+  border-radius: 2px;
+  opacity: 0.22;
+}
+
+@keyframes merge-flash {
+  from { background: rgba(109, 91, 245, 0.45); }
+  to { background: transparent; }
+}
+.merge-flash {
+  animation: merge-flash 1.4s ease-out;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.pulse {
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}

@@ -330,7 +330,8 @@ create or replace function public.save_document_snapshot(
   doc              uuid,
   expected_version bigint,
   new_content      text,
-  new_state        jsonb
+  new_state        jsonb,
+  new_seq          bigint default 0
 )
 returns bigint
 language plpgsql
@@ -348,6 +349,7 @@ begin
   update public.documents
      set content          = new_content,
          crdt_state       = new_state,
+         snapshot_seq     = greatest(snapshot_seq, coalesce(new_seq, 0)),
          snapshot_version = snapshot_version + 1,
          last_saved_at    = now(),
          updated_at       = now()
@@ -393,6 +395,55 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
+-- RPC: join_document
+--
+-- Opening a share link grants Editor access if the visitor has none yet.
+-- This is what lets a second person open the same document at all: without a
+-- permission row, RLS correctly refuses to show them anything.
+--
+-- Deliberate product choice for a link-shareable workspace -- knowing the
+-- document id is the invitation. Owners can demote anyone to Viewer afterwards,
+-- and a Viewer who calls this keeps their existing role rather than escalating.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.join_document(doc uuid)
+returns public.doc_role
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  existing public.doc_role;
+begin
+  if auth.uid() is null then
+    raise exception 'not_authenticated' using errcode = '42501';
+  end if;
+
+  select role into existing
+    from public.document_permissions
+   where document_id = doc and user_id = auth.uid();
+
+  -- Never escalates an existing role.
+  if existing is not null then
+    return existing;
+  end if;
+
+  if not exists (select 1 from public.documents where id = doc) then
+    raise exception 'document_not_found' using errcode = 'P0002';
+  end if;
+
+  insert into public.document_permissions (document_id, user_id, role)
+  values (doc, auth.uid(), 'editor')
+  on conflict (document_id, user_id) do nothing;
+
+  insert into public.activity_events (document_id, actor_id, kind, payload)
+  values (doc, auth.uid(), 'join', jsonb_build_object('first_time', true));
+
+  return 'editor'::public.doc_role;
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- RPC: next_version_number -- gap-free per-document version numbering.
 -- ---------------------------------------------------------------------------
 
@@ -407,9 +458,10 @@ as $$
     from public.document_versions where document_id = doc;
 $$;
 
-grant execute on function public.save_document_snapshot(uuid, bigint, text, jsonb) to authenticated;
+grant execute on function public.save_document_snapshot(uuid, bigint, text, jsonb, bigint) to authenticated;
 grant execute on function public.create_document(text) to authenticated;
 grant execute on function public.next_version_number(uuid) to authenticated;
+grant execute on function public.join_document(uuid) to authenticated;
 grant execute on function public.has_document_access(uuid) to authenticated;
 grant execute on function public.has_document_role(uuid, public.doc_role[]) to authenticated;
 grant execute on function public.can_edit_document(uuid) to authenticated;

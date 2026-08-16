@@ -44,6 +44,9 @@ create table if not exists public.documents (
   crdt_state       jsonb       not null default '{"nodes":[],"marks":[]}'::jsonb,
   -- Optimistic concurrency guard. Bumped only via save_document_snapshot().
   snapshot_version bigint      not null default 0,
+  -- Highest operation seq folded into crdt_state, so a client can load the
+  -- snapshot and then replay only the operations that came after it.
+  snapshot_seq     bigint      not null default 0,
   last_saved_at    timestamptz not null default now(),
   created_at       timestamptz not null default now(),
   updated_at       timestamptz not null default now()
