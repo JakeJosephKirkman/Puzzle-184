@@ -157,7 +157,7 @@ table` — which is indistinguishable, from the outside, from a policy doing its
 job. An RLS test written naively will happily report success in that state while
 protecting nothing.
 
-So `scripts/verify-rls.sql` pairs every refusal with a **positive control** and
+So the self-check in `supabase/schema.sql` pairs every refusal with a **positive control** and
 asserts specific SQLSTATEs: an editor *must* be able to append an operation
 before "a viewer cannot" means anything. It checks nine things, including that a
 stale writer is refused with `40001` and that the document still holds the first
@@ -191,17 +191,36 @@ the pre-restore state stays in history, and the restore is itself undoable.
 
 <https://supabase.com/dashboard> → new project.
 
-### 2. Apply the migrations
+### 2. Run the schema
 
-In the SQL editor, run in order:
+Paste **`supabase/schema.sql`** into the SQL editor and run it. One file, one
+run — tables, policies, functions, triggers and grants. It is idempotent, so
+running it again is safe and changes nothing.
 
-1. `supabase/migrations/0001_core_schema.sql`
-2. `supabase/migrations/0002_rls_and_functions.sql`
+It finishes by verifying itself and returning a grid. Every row should read
+`PASS`:
 
-Both are re-runnable. `0001` starts with a preflight check that refuses to
-continue if one of its `collab_` table names is already taken by a table that
-isn't ours, rather than silently skipping the create and failing confusingly
-later on.
+```
+check                                              result
+editor CAN append an operation (positive control)  PASS
+viewer CANNOT append an operation (42501)          PASS
+viewer CAN read the document                       PASS
+viewer CAN comment                                 PASS
+viewer CANNOT save a snapshot (42501)              PASS
+no permission row -> cannot see the document       PASS
+editor saved a snapshot                            PASS
+stale writer refused (40001), no overwrite         PASS
+document holds the first writer's content          PASS
+```
+
+If a row reads `FAIL`, the `detail` column says what went wrong. The schema is
+still installed either way — the checks record results rather than raising,
+because the SQL editor runs the file as one transaction and a raising assertion
+would roll back the very schema it just built.
+
+The file opens with a preflight check that refuses to continue if one of its
+`collab_` table names is already held by a table that isn't ours, rather than
+silently skipping the create and failing confusingly later.
 
 ### 3. Enable anonymous sign-ins
 
@@ -291,10 +310,10 @@ src/
   lib/dom.ts         character offset <-> DOM position mapping
   components/        editor, presence, comments, versions, activity, sharing
   app/               dashboard and document workspace
-supabase/migrations/ schema, RLS policies, triggers, RPCs
+supabase/schema.sql  the entire database: tables, RLS, triggers, RPCs,
+                     grants, and a self-verifying RLS proof
 tests/unit/          CRDT convergence and property tests
 tests/e2e/           two-client browser tests
-scripts/             RLS proof and demo seed
 ```
 
 ---
