@@ -34,8 +34,8 @@ Each character has a permanent identity — `${lamport}:${siteId}` — so an
 operation refers to *this exact character*, not to "offset 37", which is wrong
 the moment somebody types above it.
 
-Those operations are stored in an append-only log (`document_operations`). That
-log, not `documents.content`, is the source of truth. `content` is a
+Those operations are stored in an append-only log (`collab_operations`). That
+log, not `collab_documents.content`, is the source of truth. `content` is a
 materialised snapshot for fast loading; replaying the log always reproduces the
 document exactly.
 
@@ -92,7 +92,7 @@ Browser A ──┐                            ┌── Presence  (ephemeral aw
             ├── channel doc:{id} ────────┼── Broadcast (fast, lossy)
 Browser B ──┘                            └── Postgres  (durable, slower)
                                                  │
-                                          document_operations
+                                          collab_operations
                                         (append-only, the truth)
 ```
 
@@ -126,7 +126,7 @@ Snapshots are written through an RPC that takes the version the client believes
 is current:
 
 ```sql
-save_document_snapshot(doc, expected_version, new_content, new_state, new_seq)
+collab_save_snapshot(doc, expected_version, new_content, new_state, new_seq)
 ```
 
 If someone else saved first, the `UPDATE` matches no row and the function
@@ -139,13 +139,33 @@ overwrite a newer one even in principle.
 Roles are Owner, Editor and Viewer. The greyed-out toolbar is an affordance; the
 actual boundary is row level security:
 
-- `SELECT` on a document requires a `document_permissions` row.
-- `INSERT` into `document_operations` requires role `owner` or `editor`.
-- `document_operations` has **no** update or delete policy at all, so history
+- `SELECT` on a document requires a `collab_permissions` row.
+- `INSERT` into `collab_operations` requires role `owner` or `editor`.
+- `collab_operations` has **no** update or delete policy at all, so history
   cannot be rewritten by anybody.
 
-A viewer who opens devtools and calls the Supabase client directly is rejected
-by Postgres. `scripts/verify-rls.sql` proves exactly that, with the UI bypassed.
+Privileges are granted **table by table**, never `all tables in schema public` —
+these tables share a database with other projects, and a schema-wide grant would
+hand out rights over somebody else's data. `collab_operations` receives `SELECT`
+and `INSERT` only, so the operation log is append-only at the privilege layer as
+well as the policy layer, and history cannot be rewritten by anybody.
+
+Being explicit about grants also matters for the test to mean anything. RLS
+narrows *within* a privilege; it cannot grant one. If `authenticated` has no
+privilege on a table at all, every write fails with `permission denied for
+table` — which is indistinguishable, from the outside, from a policy doing its
+job. An RLS test written naively will happily report success in that state while
+protecting nothing.
+
+So `scripts/verify-rls.sql` pairs every refusal with a **positive control** and
+asserts specific SQLSTATEs: an editor *must* be able to append an operation
+before "a viewer cannot" means anything. It checks nine things, including that a
+stale writer is refused with `40001` and that the document still holds the first
+writer's content afterwards — the anti-overwrite guarantee, proven in the
+database rather than asserted in a README.
+
+A viewer who opens devtools and calls the Supabase client directly is rejected by
+Postgres. That script proves it, with the UI bypassed entirely.
 
 ### Positions that survive editing
 
@@ -177,6 +197,11 @@ In the SQL editor, run in order:
 
 1. `supabase/migrations/0001_core_schema.sql`
 2. `supabase/migrations/0002_rls_and_functions.sql`
+
+Both are re-runnable. `0001` starts with a preflight check that refuses to
+continue if one of its `collab_` table names is already taken by a table that
+isn't ours, rather than silently skipping the create and failing confusingly
+later on.
 
 ### 3. Enable anonymous sign-ins
 
@@ -287,6 +312,11 @@ scripts/             RLS proof and demo seed
   shareable at all — without a permission row, RLS correctly shows a visitor
   nothing. Owners can demote anyone to Viewer afterwards. For a private
   workspace this is where a real invitation flow would go.
+- **Every table, type and function is namespaced `collab_`.** These schemas share a
+  Postgres database with whatever else lives in the project, and names like `profiles`,
+  `documents` and `comments` are ones another app may already own. The migration also
+  refuses to run if a `collab_` table exists without the columns it expects, rather than
+  quietly adopting a stranger's table.
 - **Tombstones are never collected.** A long-lived document accumulates deleted
   characters. Production systems periodically compact; that is out of scope
   here.

@@ -107,7 +107,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
         const missing = wanted.filter((id) => !current[id]);
         if (missing.length > 0) {
           void supabase
-            .from('profiles')
+            .from('collab_profiles')
             .select('*')
             .in('id', missing)
             .then(({ data }) => {
@@ -150,7 +150,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
     // ignoreDuplicates makes a retried flush a no-op instead of an error: the
     // unique (document_id, op_id) index means replaying is always safe.
     const { error: insertError } = await supabase
-      .from('document_operations')
+      .from('collab_operations')
       .upsert(rows, { onConflict: 'document_id,op_id', ignoreDuplicates: true });
 
     if (insertError) {
@@ -175,7 +175,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
       setSaveState('saving');
       await flushOutbox();
 
-      const { data, error: rpcError } = await supabase.rpc('save_document_snapshot', {
+      const { data, error: rpcError } = await supabase.rpc('collab_save_snapshot', {
         doc: documentId,
         expected_version: versionRef.current,
         new_content: rga.text,
@@ -194,7 +194,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
         if (isConflict && attempt < 4) {
           await catchUpRef.current?.();
           const { data: fresh } = await supabase
-            .from('documents')
+            .from('collab_documents')
             .select('snapshot_version')
             .eq('id', documentId)
             .single();
@@ -238,7 +238,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
     if (!rga) return;
 
     const { data, error: fetchError } = await supabase
-      .from('document_operations')
+      .from('collab_operations')
       .select('*')
       .eq('document_id', documentId)
       .gt('seq', lastSeqRef.current)
@@ -320,10 +320,10 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
 
       // Joining is what creates the permission row for a visitor arriving via a
       // share link. Without it RLS correctly shows them nothing at all.
-      const { data: joinedRole } = await supabase.rpc('join_document', { doc: documentId });
+      const { data: joinedRole } = await supabase.rpc('collab_join_document', { doc: documentId });
 
       const { data: docRow, error: docError } = await supabase
-        .from('documents')
+        .from('collab_documents')
         .select('*')
         .eq('id', documentId)
         .maybeSingle();
@@ -338,7 +338,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
 
       const document = docRow as DocumentRow;
       const { data: perm } = await supabase
-        .from('document_permissions')
+        .from('collab_permissions')
         .select('role')
         .eq('document_id', documentId)
         .eq('user_id', identity.user.id)
@@ -372,17 +372,17 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
       const [{ data: versionRows }, { data: commentRows }, { data: activityRows }] =
         await Promise.all([
           supabase
-            .from('document_versions')
+            .from('collab_versions')
             .select('*')
             .eq('document_id', documentId)
             .order('version_number', { ascending: true }),
           supabase
-            .from('comments')
+            .from('collab_comments')
             .select('*')
             .eq('document_id', documentId)
             .order('created_at', { ascending: true }),
           supabase
-            .from('activity_events')
+            .from('collab_activity')
             .select('*')
             .eq('document_id', documentId)
             .order('created_at', { ascending: false })
@@ -440,7 +440,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
             .map((x) => x.sessionId)
             .sort();
           if (remaining[0] === identity.sessionId) {
-            void supabase.from('activity_events').insert({
+            void supabase.from('collab_activity').insert({
               document_id: documentId,
               actor_id: p.userId,
               kind: 'leave',
@@ -484,7 +484,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
       })
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'document_operations', filter: `document_id=eq.${documentId}` },
+        { event: 'INSERT', schema: 'public', table: 'collab_operations', filter: `document_id=eq.${documentId}` },
         ({ new: row }) => {
           const op = row as OperationRow;
           const rga = rgaRef.current;
@@ -508,7 +508,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
       )
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'comments', filter: `document_id=eq.${documentId}` },
+        { event: '*', schema: 'public', table: 'collab_comments', filter: `document_id=eq.${documentId}` },
         ({ eventType, new: row, old: oldRow }) => {
           if (eventType === 'DELETE') {
             const removed = oldRow as { id: string };
@@ -525,7 +525,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
       )
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'activity_events', filter: `document_id=eq.${documentId}` },
+        { event: '*', schema: 'public', table: 'collab_activity', filter: `document_id=eq.${documentId}` },
         ({ new: row }) => {
           const event = row as ActivityRow;
           if (!event?.id) return;
@@ -540,7 +540,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
       )
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'document_versions', filter: `document_id=eq.${documentId}` },
+        { event: 'INSERT', schema: 'public', table: 'collab_versions', filter: `document_id=eq.${documentId}` },
         ({ new: row }) => {
           const version = row as VersionRow;
           void ensureProfiles([version.created_by]);
@@ -553,7 +553,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
       )
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'documents', filter: `id=eq.${documentId}` },
+        { event: 'UPDATE', schema: 'public', table: 'collab_documents', filter: `id=eq.${documentId}` },
         ({ new: row }) => {
           const updated = row as DocumentRow;
           setDoc((current) => (current ? { ...current, ...updated } : updated));
@@ -565,12 +565,12 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
       )
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'document_permissions', filter: `document_id=eq.${documentId}` },
+        { event: '*', schema: 'public', table: 'collab_permissions', filter: `document_id=eq.${documentId}` },
         () => {
           // A role change must take effect immediately for the affected user --
           // demoting somebody to Viewer while they are typing has to bite now.
           void supabase
-            .from('document_permissions')
+            .from('collab_permissions')
             .select('role')
             .eq('document_id', documentId)
             .eq('user_id', identity.user.id)
@@ -617,7 +617,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
 
     // Log our arrival once the row exists.
     void supabase
-      .from('activity_events')
+      .from('collab_activity')
       .insert({
         document_id: documentId,
         actor_id: identity.user.id,
@@ -819,13 +819,13 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
       if (!rga || !identity || !canEdit(roleRef.current)) return;
 
       await flushOutbox();
-      const { data: nextNumber } = await supabase.rpc('next_version_number', { doc: documentId });
+      const { data: nextNumber } = await supabase.rpc('collab_next_version', { doc: documentId });
 
       const contributors = [
         ...new Set(presencePeersRef.current.map((p) => p.userId).concat(identity.user.id)),
       ];
 
-      await supabase.from('document_versions').insert({
+      await supabase.from('collab_versions').insert({
         document_id: documentId,
         version_number: Number(nextNumber ?? 1),
         content: rga.text,
@@ -895,7 +895,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
         }
       }
 
-      await supabase.from('comments').insert({
+      await supabase.from('collab_comments').insert({
         document_id: documentId,
         parent_id: parentId ?? null,
         author_id: identity.user.id,
@@ -910,7 +910,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
     async (commentId: string, resolved: boolean) => {
       if (!identity) return;
       await supabase
-        .from('comments')
+        .from('collab_comments')
         .update({
           resolved,
           resolved_by: resolved ? identity.user.id : null,
@@ -929,7 +929,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
   const renameDocument = useCallback(
     async (title: string) => {
       if (!canEdit(roleRef.current)) return;
-      await supabase.from('documents').update({ title }).eq('id', documentId);
+      await supabase.from('collab_documents').update({ title }).eq('id', documentId);
       setDoc((current) => (current ? { ...current, title } : current));
     },
     [documentId, supabase],
@@ -938,11 +938,11 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
   const changeRole = useCallback(
     async (userId: string, nextRole: DocRole) => {
       await supabase
-        .from('document_permissions')
+        .from('collab_permissions')
         .update({ role: nextRole })
         .eq('document_id', documentId)
         .eq('user_id', userId);
-      await supabase.from('activity_events').insert({
+      await supabase.from('collab_activity').insert({
         document_id: documentId,
         actor_id: identity?.user.id ?? null,
         kind: 'permission',

@@ -13,7 +13,7 @@ begin
     raise exception 'No users yet. Open the app once so anonymous sign-in creates one.';
   end if;
 
-  insert into public.documents (title, owner_id, content)
+  insert into public.collab_documents (title, owner_id, content)
   values (
     'Project Phoenix - Product Requirements',
     demo_user,
@@ -21,13 +21,13 @@ begin
   )
   returning id into doc_id;
 
-  insert into public.document_permissions (document_id, user_id, role)
+  insert into public.collab_permissions (document_id, user_id, role)
   values (doc_id, demo_user, 'owner');
 
-  insert into public.document_versions (document_id, version_number, content, crdt_snapshot, created_by, label, summary)
+  insert into public.collab_versions (document_id, version_number, content, crdt_snapshot, created_by, label, summary)
   select doc_id, 1, content, '{"nodes":[],"marks":[],"clock":0}'::jsonb, demo_user, 'Initial draft',
          jsonb_build_object('edits', 0, 'sections', 9)
-    from public.documents where id = doc_id;
+    from public.collab_documents where id = doc_id;
 
   raise notice 'Seeded document %', doc_id;
 end $$;

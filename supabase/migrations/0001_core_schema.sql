@@ -9,22 +9,61 @@
 create extension if not exists "pgcrypto";
 
 -- ---------------------------------------------------------------------------
+-- Preflight: refuse to run against somebody else's tables.
+--
+-- Every object below is namespaced `collab_` so this schema can share a
+-- database with other projects. The creates further down are `if not exists`
+-- so the migration can be re-run safely -- but that same flag will silently
+-- skip a table whose name is already taken, leaving a foreign table wearing
+-- our name and producing baffling "column does not exist" errors much later.
+--
+-- So: if a collab_ table already exists but lacks a column we know ours has,
+-- it is not ours. Fail here, loudly, naming the table and the fix.
+-- ---------------------------------------------------------------------------
+
+do $$
+declare t record;
+begin
+  for t in select * from (values
+      ('collab_profiles',    'display_name'),
+      ('collab_documents',   'crdt_state'),
+      ('collab_permissions', 'role'),
+      ('collab_operations',  'op_id'),
+      ('collab_versions',    'crdt_snapshot'),
+      ('collab_comments',    'anchor'),
+      ('collab_activity',    'bucket')
+    ) as v(tbl, col)
+  loop
+    if to_regclass('public.' || t.tbl) is not null and not exists (
+         select 1 from information_schema.columns
+          where table_schema = 'public'
+            and table_name = t.tbl
+            and column_name = t.col)
+    then
+      raise exception
+        'public.% already exists but has no % column, so it is not CollabSpace''s table. Rename or remove it before running this migration.',
+        t.tbl, t.col;
+    end if;
+  end loop;
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- Enums
 -- ---------------------------------------------------------------------------
 
 do $$ begin
-  create type public.doc_role as enum ('owner', 'editor', 'viewer');
+  create type public.collab_role as enum ('owner', 'editor', 'viewer');
 exception when duplicate_object then null; end $$;
 
 do $$ begin
-  create type public.activity_kind as enum ('edit', 'comment', 'join', 'leave', 'restore', 'permission');
+  create type public.collab_activity_kind as enum ('edit', 'comment', 'join', 'leave', 'restore', 'permission');
 exception when duplicate_object then null; end $$;
 
 -- ---------------------------------------------------------------------------
 -- profiles
 -- ---------------------------------------------------------------------------
 
-create table if not exists public.profiles (
+create table if not exists public.collab_profiles (
   id           uuid primary key references auth.users (id) on delete cascade,
   display_name text        not null,
   color        text        not null,
@@ -36,7 +75,7 @@ create table if not exists public.profiles (
 -- documents
 -- ---------------------------------------------------------------------------
 
-create table if not exists public.documents (
+create table if not exists public.collab_documents (
   id               uuid        primary key default gen_random_uuid(),
   title            text        not null default 'Untitled document',
   owner_id         uuid        not null references auth.users (id) on delete cascade,
@@ -52,31 +91,31 @@ create table if not exists public.documents (
   updated_at       timestamptz not null default now()
 );
 
-create index if not exists documents_owner_idx on public.documents (owner_id);
+create index if not exists collab_documents_owner_idx on public.collab_documents (owner_id);
 
 -- ---------------------------------------------------------------------------
 -- document_permissions
 -- ---------------------------------------------------------------------------
 
-create table if not exists public.document_permissions (
+create table if not exists public.collab_permissions (
   id          uuid          primary key default gen_random_uuid(),
-  document_id uuid          not null references public.documents (id) on delete cascade,
+  document_id uuid          not null references public.collab_documents (id) on delete cascade,
   user_id     uuid          not null references auth.users (id) on delete cascade,
-  role        public.doc_role not null default 'viewer',
+  role        public.collab_role not null default 'viewer',
   granted_by  uuid          references auth.users (id) on delete set null,
   created_at  timestamptz   not null default now(),
   unique (document_id, user_id)
 );
 
-create index if not exists document_permissions_user_idx on public.document_permissions (user_id);
+create index if not exists collab_permissions_user_idx on public.collab_permissions (user_id);
 
 -- ---------------------------------------------------------------------------
 -- document_operations  (append-only CRDT log -- the real source of truth)
 -- ---------------------------------------------------------------------------
 
-create table if not exists public.document_operations (
+create table if not exists public.collab_operations (
   seq         bigserial   primary key,
-  document_id uuid        not null references public.documents (id) on delete cascade,
+  document_id uuid        not null references public.collab_documents (id) on delete cascade,
   actor_id    uuid        not null references auth.users (id) on delete cascade,
   site_id     text        not null,
   lamport     bigint      not null,
@@ -88,38 +127,38 @@ create table if not exists public.document_operations (
   unique (document_id, op_id)
 );
 
-create index if not exists document_operations_doc_seq_idx
-  on public.document_operations (document_id, seq);
+create index if not exists collab_operations_doc_seq_idx
+  on public.collab_operations (document_id, seq);
 
 -- ---------------------------------------------------------------------------
 -- document_versions
 -- ---------------------------------------------------------------------------
 
-create table if not exists public.document_versions (
+create table if not exists public.collab_versions (
   id             uuid        primary key default gen_random_uuid(),
-  document_id    uuid        not null references public.documents (id) on delete cascade,
+  document_id    uuid        not null references public.collab_documents (id) on delete cascade,
   version_number integer     not null,
   content        text        not null,
   crdt_snapshot  jsonb       not null,
   created_by     uuid        references auth.users (id) on delete set null,
   label          text,
   summary        jsonb       not null default '{}'::jsonb,
-  restored_from  uuid        references public.document_versions (id) on delete set null,
+  restored_from  uuid        references public.collab_versions (id) on delete set null,
   created_at     timestamptz not null default now(),
   unique (document_id, version_number)
 );
 
-create index if not exists document_versions_doc_idx
-  on public.document_versions (document_id, version_number desc);
+create index if not exists collab_versions_doc_idx
+  on public.collab_versions (document_id, version_number desc);
 
 -- ---------------------------------------------------------------------------
 -- comments
 -- ---------------------------------------------------------------------------
 
-create table if not exists public.comments (
+create table if not exists public.collab_comments (
   id          uuid        primary key default gen_random_uuid(),
-  document_id uuid        not null references public.documents (id) on delete cascade,
-  parent_id   uuid        references public.comments (id) on delete cascade,
+  document_id uuid        not null references public.collab_documents (id) on delete cascade,
+  parent_id   uuid        references public.collab_comments (id) on delete cascade,
   author_id   uuid        not null references auth.users (id) on delete cascade,
   body        text        not null,
   -- { startId, endId, quotedText } -- CRDT character ids, not integer offsets,
@@ -132,18 +171,18 @@ create table if not exists public.comments (
   updated_at  timestamptz not null default now()
 );
 
-create index if not exists comments_doc_idx on public.comments (document_id, created_at);
-create index if not exists comments_parent_idx on public.comments (parent_id);
+create index if not exists collab_comments_doc_idx on public.collab_comments (document_id, created_at);
+create index if not exists collab_comments_parent_idx on public.collab_comments (parent_id);
 
 -- ---------------------------------------------------------------------------
 -- activity_events
 -- ---------------------------------------------------------------------------
 
-create table if not exists public.activity_events (
+create table if not exists public.collab_activity (
   id          uuid                 primary key default gen_random_uuid(),
-  document_id uuid                 not null references public.documents (id) on delete cascade,
+  document_id uuid                 not null references public.collab_documents (id) on delete cascade,
   actor_id    uuid                 references auth.users (id) on delete set null,
-  kind        public.activity_kind not null,
+  kind        public.collab_activity_kind not null,
   payload     jsonb                not null default '{}'::jsonb,
   -- Coalescing bucket for 'edit' events so typing never floods the feed.
   bucket      timestamptz,
@@ -151,11 +190,11 @@ create table if not exists public.activity_events (
   updated_at  timestamptz          not null default now()
 );
 
-create index if not exists activity_events_doc_idx
-  on public.activity_events (document_id, created_at desc);
+create index if not exists collab_activity_doc_idx
+  on public.collab_activity (document_id, created_at desc);
 
-create unique index if not exists activity_events_edit_bucket_idx
-  on public.activity_events (document_id, actor_id, bucket)
+create unique index if not exists collab_activity_edit_bucket_idx
+  on public.collab_activity (document_id, actor_id, bucket)
   where kind = 'edit';
 
 -- ---------------------------------------------------------------------------
@@ -166,8 +205,8 @@ do $$
 declare t text;
 begin
   foreach t in array array[
-    'documents', 'document_permissions', 'document_operations',
-    'document_versions', 'comments', 'activity_events'
+    'collab_documents', 'collab_permissions', 'collab_operations',
+    'collab_versions', 'collab_comments', 'collab_activity'
   ] loop
     begin
       execute format('alter publication supabase_realtime add table public.%I', t);
@@ -176,7 +215,7 @@ begin
   end loop;
 end $$;
 
-alter table public.document_operations replica identity full;
-alter table public.comments           replica identity full;
-alter table public.activity_events    replica identity full;
-alter table public.documents          replica identity full;
+alter table public.collab_operations replica identity full;
+alter table public.collab_comments           replica identity full;
+alter table public.collab_activity    replica identity full;
+alter table public.collab_documents          replica identity full;

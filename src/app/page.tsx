@@ -27,7 +27,7 @@ export default function Dashboard() {
 
     // RLS means this returns only documents we hold a permission row for.
     const { data: permissions, error: permError } = await supabase
-      .from('document_permissions')
+      .from('collab_permissions')
       .select('document_id, role')
       .eq('user_id', identity.user.id);
 
@@ -43,7 +43,7 @@ export default function Dashboard() {
     }
 
     const { data: docs } = await supabase
-      .from('documents')
+      .from('collab_documents')
       .select('*')
       .in('id', ids)
       .order('updated_at', { ascending: false });
@@ -68,7 +68,7 @@ export default function Dashboard() {
     if (!identity || busy) return;
     setBusy(true);
     const supabase = getSupabaseBrowserClient();
-    const { data, error: rpcError } = await supabase.rpc('create_document', {
+    const { data, error: rpcError } = await supabase.rpc('collab_create_document', {
       doc_title: 'Untitled document',
     });
     setBusy(false);

@@ -34,7 +34,7 @@ export function ShareDialog({
     const supabase = getSupabaseBrowserClient();
     void (async () => {
       const { data } = await supabase
-        .from('document_permissions')
+        .from('collab_permissions')
         .select('*')
         .eq('document_id', documentId);
       const permissions = (data ?? []) as PermissionRow[];
@@ -42,7 +42,7 @@ export function ShareDialog({
 
       const missing = permissions.map((p) => p.user_id).filter((id) => !names[id]);
       if (missing.length > 0) {
-        const { data: fetched } = await supabase.from('profiles').select('*').in('id', missing);
+        const { data: fetched } = await supabase.from('collab_profiles').select('*').in('id', missing);
         if (fetched) {
           setNames((current) => {
             const next = { ...current };

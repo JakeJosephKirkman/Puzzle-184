@@ -44,7 +44,7 @@ export function useIdentity() {
         if (!user) throw new Error('Could not establish a session.');
 
         const { data: existing } = await supabase
-          .from('profiles')
+          .from('collab_profiles')
           .select('*')
           .eq('id', user.id)
           .maybeSingle();
@@ -58,7 +58,7 @@ export function useIdentity() {
             color: colorForUser(user.id),
           };
           const { data: created, error: insertError } = await supabase
-            .from('profiles')
+            .from('collab_profiles')
             .insert(candidate)
             .select()
             .single();
@@ -89,7 +89,7 @@ export function useIdentity() {
     if (!identity) return;
     const supabase = getSupabaseBrowserClient();
     const { data } = await supabase
-      .from('profiles')
+      .from('collab_profiles')
       .update({ display_name: name, updated_at: new Date().toISOString() })
       .eq('id', identity.user.id)
       .select()
