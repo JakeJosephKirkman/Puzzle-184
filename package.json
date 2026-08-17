@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:sql": "echo \"Run tests/sql/triggers.sql against a database with schema.sql applied\""
+    "test:sql": "echo \"Run tests/sql/triggers.sql against a database with schema.sql applied\"",
+    "verify": "npm run typecheck && npm run lint && npm run test && npm run build"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

@@ -426,15 +426,30 @@ describe('Editor accessibility', () => {
     const anchorStart = rga.idAtIndex(0)!;
     const anchorEnd = rga.idAtIndex(8)!;
 
-    const props = {
-      rga, text: rga.text, marks: [], peers: [], readOnly: false,
-      activeCommentId: null, showAuthors: false, authorColors: {}, authorNames: {},
-      onUndo: noop, onRedo: noop, onChange: noop, onCaret: noop, onTyping: noop,
-      onSelectionChange: noop, onCommentClick: noop,
-      comments: [comment({ anchor: { startId: anchorStart, endId: anchorEnd, quotedText: 'commented' } })],
+    const props: React.ComponentProps<typeof Editor> = {
+      rga,
+      text: rga.text,
+      marks: [],
+      peers: [],
+      readOnly: false,
+      activeCommentId: null,
+      showAuthors: false,
+      authorColors: {},
+      authorNames: {},
+      onUndo: noop,
+      onRedo: noop,
+      onChange: noop,
+      onCaret: noop,
+      onTyping: noop,
+      onSelectionChange: noop,
+      onCommentClick: noop,
+      comments: [
+        comment({ anchor: { startId: anchorStart, endId: anchorEnd, quotedText: 'commented' } }),
+      ],
       ...over,
     };
-    return { ...render(<Editor {...(props as never)} />), anchorStart };
+    render(<Editor {...props} />);
+    return { anchorStart };
   }
 
   it('exposes the document as a labelled multiline textbox', () => {
