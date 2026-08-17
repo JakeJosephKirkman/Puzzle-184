@@ -16,11 +16,23 @@ const BUTTONS: { type: MarkType; label: string; title: string; style?: React.CSS
 export function Toolbar({
   disabled,
   hasSelection,
+  canUndo,
+  canRedo,
+  showAuthors,
+  onUndo,
+  onRedo,
+  onToggleAuthors,
   onMark,
   onComment,
 }: {
   disabled: boolean;
   hasSelection: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+  showAuthors: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
+  onToggleAuthors: () => void;
   onMark: (type: MarkType) => void;
   onComment: () => void;
 }) {
@@ -35,6 +47,27 @@ export function Toolbar({
         flexWrap: 'wrap',
       }}
     >
+      <button
+        className="btn"
+        disabled={disabled || !canUndo}
+        onClick={onUndo}
+        title="Undo your last change (⌘Z)"
+        style={{ padding: '4px 9px', fontSize: 12 }}
+      >
+        ↶
+      </button>
+      <button
+        className="btn"
+        disabled={disabled || !canRedo}
+        onClick={onRedo}
+        title="Redo (⌘⇧Z)"
+        style={{ padding: '4px 9px', fontSize: 12 }}
+      >
+        ↷
+      </button>
+
+      <span style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 6px' }} />
+
       {BUTTONS.map((button) => (
         <button
           key={button.type}
@@ -61,6 +94,21 @@ export function Toolbar({
       ))}
 
       <span style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 6px' }} />
+
+      <button
+        className="btn"
+        onClick={onToggleAuthors}
+        title="Colour the text by who wrote it"
+        style={{
+          padding: '4px 9px',
+          fontSize: 12,
+          background: showAuthors ? 'var(--accent)' : undefined,
+          borderColor: showAuthors ? 'var(--accent)' : undefined,
+          color: showAuthors ? '#fff' : undefined,
+        }}
+      >
+        Authors
+      </button>
 
       <button
         className="btn"

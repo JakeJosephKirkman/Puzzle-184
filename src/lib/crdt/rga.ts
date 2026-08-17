@@ -1,4 +1,5 @@
 import {
+  parseCharId,
   type CharId,
   type CrdtCursor,
   type Mark,
@@ -7,6 +8,7 @@ import {
   type RgaNode,
   type RgaSnapshot,
   type SiteId,
+  beatsState,
   compareCharId,
   makeCharId,
   opKey,
@@ -60,6 +62,16 @@ export class Rga {
 
   private clock = 0;
   private textCache: string | null = null;
+
+  /**
+   * Which user each site id belongs to.
+   *
+   * Every character id already encodes the site that produced it, so authorship
+   * is inherent in the sequence -- this map is only the last hop from site to
+   * person. It travels in the snapshot so attribution survives the operation
+   * log being pruned.
+   */
+  private authors = new Map<SiteId, string>();
 
   constructor(site: SiteId) {
     this.site = site;
@@ -198,9 +210,29 @@ export class Rga {
     const ops: Op[] = [];
     for (const id of ids) {
       this.clock += 1;
-      const op: Op = { t: 'del', id };
+      const op: Op = { t: 'del', id, lamport: this.clock, site: this.site };
       this.applyOne(op);
       ops.push(op);
+    }
+    return ops;
+  }
+
+  /**
+   * Restore tombstoned characters by their ids.
+   *
+   * Used by undo: the original characters come back with their original ids, so
+   * anything anchored to them -- comments, marks -- reattaches rather than
+   * staying orphaned. Re-inserting the same text as new characters would look
+   * identical on screen and quietly break both.
+   */
+  localRevive(ids: CharId[]): Op[] {
+    const ops: Op[] = [];
+    for (const id of ids) {
+      if (!this.byId.has(id)) continue;
+      this.clock += 1;
+      const op: Op = { t: 'rev', id, lamport: this.clock, site: this.site };
+      if (this.applyOne(op)) ops.push(op);
+      else ops.push(op); // still broadcast: another replica may not have it yet
     }
     return ops;
   }
@@ -241,7 +273,11 @@ export class Rga {
       }
 
       this.observeClock(op.id);
-      const node: RgaNode = { id: op.id, ch: op.ch, left: op.left, deleted: false };
+      const { lamport, site } = parseCharId(op.id);
+      const node: RgaNode = {
+        id: op.id, ch: op.ch, left: op.left, deleted: false,
+        stateLamport: lamport, stateSite: site,
+      };
       this.integrate(node);
       this.seen.add(key);
       this.invalidate();
@@ -249,6 +285,7 @@ export class Rga {
       return true;
     }
 
+    // A delete or a revive: both write the same last-writer-wins register.
     const target = this.byId.get(op.id);
     if (!target) {
       this.buffer(op.id, op);
@@ -256,8 +293,19 @@ export class Rga {
     }
 
     this.seen.add(key);
-    if (target.deleted) return false; // tombstoning twice is a no-op
-    target.deleted = true;
+    this.observeLamport(op.lamport);
+
+    // An older state change losing to a newer one is not a failure -- it is the
+    // register doing its job, and is what makes concurrent delete-and-revive
+    // converge identically on every replica.
+    if (!beatsState(op, target)) return false;
+
+    const nextDeleted = op.t === 'del';
+    target.stateLamport = op.lamport;
+    target.stateSite = op.site;
+    if (target.deleted === nextDeleted) return false;
+
+    target.deleted = nextDeleted;
     this.invalidate();
     return true;
   }
@@ -417,23 +465,51 @@ export class Rga {
   // Snapshots
   // -------------------------------------------------------------------------
 
+  /** Record which user a site belongs to, for authorship attribution. */
+  setAuthor(site: SiteId, userId: string): void {
+    if (site && userId) this.authors.set(site, userId);
+  }
+
+  /** The user who typed a given character, if known. */
+  authorOf(id: CharId): string | null {
+    const site = id.slice(id.indexOf(':') + 1);
+    return this.authors.get(site) ?? null;
+  }
+
+  authorMap(): Record<string, string> {
+    return Object.fromEntries(this.authors);
+  }
+
   snapshot(): RgaSnapshot {
     return {
       nodes: this.order.map((n) => ({ ...n })),
       marks: [...this.marks.values()],
       clock: this.clock,
+      authors: this.authorMap(),
     };
   }
 
   static fromSnapshot(site: SiteId, snapshot: RgaSnapshot): Rga {
     const rga = new Rga(site);
-    rga.order = snapshot.nodes.map((n) => ({ ...n }));
+    rga.order = snapshot.nodes.map((n) => {
+      const copy = { ...n };
+      // Snapshots written before deletion became an LWW register have no state
+      // stamp; seed it from the character's own id so ordering still works.
+      if (copy.stateLamport === undefined) {
+        const parsed = parseCharId(copy.id);
+        copy.stateLamport = parsed.lamport;
+        copy.stateSite = parsed.site;
+      }
+      return copy;
+    });
     for (const n of rga.order) {
       rga.byId.set(n.id, n);
       rga.seen.add(`i:${n.id}`);
-      if (n.deleted) rga.seen.add(`d:${n.id}`);
     }
     for (const m of snapshot.marks ?? []) rga.marks.set(m.id, m);
+    for (const [site, user] of Object.entries(snapshot.authors ?? {})) {
+      rga.authors.set(site, user);
+    }
     rga.clock = snapshot.clock ?? 0;
     rga.posDirty = true;
     rga.invalidate();

@@ -5,6 +5,7 @@ import { PresencePanel, TypingIndicator } from '../../src/components/PresencePan
 import { ActivityFeed } from '../../src/components/ActivityFeed';
 import { CommentsPanel } from '../../src/components/CommentsPanel';
 import { VersionHistory } from '../../src/components/VersionHistory';
+import { Toolbar } from '../../src/components/Toolbar';
 import type {
   ActivityRow,
   CommentRow,
@@ -359,5 +360,57 @@ describe('VersionHistory', () => {
     );
     expect(screen.getByRole('button', { name: /Restore/ })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Save version' })).toBeDisabled();
+  });
+});
+
+describe('Toolbar', () => {
+  const noop = () => {};
+
+  it('disables undo and redo until there is history', () => {
+    render(
+      <Toolbar disabled={false} hasSelection={false} canUndo={false} canRedo={false}
+        showAuthors={false} onUndo={noop} onRedo={noop} onToggleAuthors={noop}
+        onMark={noop} onComment={noop} />,
+    );
+    expect(screen.getByTitle(/Undo your last change/)).toBeDisabled();
+    expect(screen.getByTitle(/Redo/)).toBeDisabled();
+  });
+
+  it('fires undo and redo when they are available', async () => {
+    const onUndo = vi.fn();
+    const onRedo = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <Toolbar disabled={false} hasSelection={false} canUndo canRedo
+        showAuthors={false} onUndo={onUndo} onRedo={onRedo} onToggleAuthors={noop}
+        onMark={noop} onComment={noop} />,
+    );
+    await user.click(screen.getByTitle(/Undo your last change/));
+    await user.click(screen.getByTitle(/Redo/));
+    expect(onUndo).toHaveBeenCalled();
+    expect(onRedo).toHaveBeenCalled();
+  });
+
+  it('offers a viewer no editing controls at all', () => {
+    render(
+      <Toolbar disabled hasSelection canUndo canRedo
+        showAuthors={false} onUndo={noop} onRedo={noop} onToggleAuthors={noop}
+        onMark={noop} onComment={noop} />,
+    );
+    expect(screen.getByTitle(/Undo your last change/)).toBeDisabled();
+    expect(screen.getByText('B')).toBeDisabled();
+  });
+
+  it('toggles the authorship heatmap', async () => {
+    const onToggleAuthors = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <Toolbar disabled={false} hasSelection={false} canUndo={false} canRedo={false}
+        showAuthors={false} onUndo={noop} onRedo={noop} onToggleAuthors={onToggleAuthors}
+        onMark={noop} onComment={noop} />,
+    );
+    // Available to viewers too -- reading who wrote what is not an edit.
+    await user.click(screen.getByRole('button', { name: 'Authors' }));
+    expect(onToggleAuthors).toHaveBeenCalled();
   });
 });

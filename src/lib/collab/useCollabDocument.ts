@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { Rga } from '@/lib/crdt/rga';
 import { diffToOps } from '@/lib/crdt/diff';
+import { UndoStack, forwardTransaction, invertTransaction } from '@/lib/crdt/undo';
 import type { CharId, Mark, MarkType, Op } from '@/lib/crdt/types';
 import { Outbox, type OutboxEntry } from '@/lib/realtime/outbox';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
@@ -84,6 +85,8 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
   const presenceRef = useRef<PresenceState | null>(null);
   const conflictSeqRef = useRef(0);
   const subscribedRef = useRef(false);
+  const undoRef = useRef<UndoStack | null>(null);
+  const [undoState, setUndoState] = useState({ canUndo: false, canRedo: false });
 
   const roleRef = useRef<DocRole | null>(null);
   roleRef.current = role;
@@ -312,6 +315,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
     const site = identity.sessionId;
     const outbox = new Outbox(documentId, identity.sessionId);
     outboxRef.current = outbox;
+    undoRef.current = new UndoStack(identity.sessionId);
     setPendingCount(outbox.size);
 
     const load = async () => {
@@ -355,6 +359,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
         snapshot && Array.isArray(snapshot.nodes) && snapshot.nodes.length > 0
           ? Rga.fromSnapshot(site, snapshot)
           : new Rga(site);
+      rga.setAuthor(identity.sessionId, identity.user.id);
       rgaRef.current = rga;
       lastSeqRef.current = document.snapshot_seq ?? 0;
       versionRef.current = document.snapshot_version;
@@ -455,6 +460,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
         if (!rga || envelope.siteId === site) return;
 
         rga.observeLamport(envelope.lamport);
+        rga.setAuthor(envelope.siteId, envelope.actorId);
         const applied = rga.applyRemote(envelope.ops ?? []);
         for (const mark of envelope.marks ?? []) rga.applyMark(mark);
         if (applied.length > 0 || envelope.marks?.length) syncText();
@@ -493,6 +499,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
           if (op.site_id === site) return; // our own write coming back
 
           rga.observeLamport(op.lamport);
+          rga.setAuthor(op.site_id, op.actor_id);
           const payload = op.op as Op | { mark: Mark };
           if ('mark' in payload) {
             if (rga.applyMark(payload.mark)) syncText();
@@ -726,6 +733,15 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
 
       localCursorRef.current = caretIndex;
       lastLocalEditRef.current = Date.now();
+
+      // Only our own operations are ever recorded, which is what makes undo
+      // structurally incapable of reverting a collaborator's work.
+      undoRef.current?.record(ops);
+      setUndoState({
+        canUndo: undoRef.current?.canUndo ?? false,
+        canRedo: undoRef.current?.canRedo ?? false,
+      });
+
       syncText();
       publish(ops);
 
@@ -736,6 +752,52 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
     },
     [publish, syncText],
   );
+
+  /**
+   * Undo this session's most recent transaction.
+   *
+   * Deleted characters are revived by id rather than retyped, so comments and
+   * marks anchored to them reattach instead of staying orphaned.
+   */
+  const undo = useCallback(() => {
+    const rga = rgaRef.current;
+    const stack = undoRef.current;
+    if (!rga || !stack || !canEdit(roleRef.current)) return;
+
+    const tx = stack.popUndo();
+    if (!tx) return;
+
+    const { revive, remove } = invertTransaction(tx);
+    const ops: Op[] = [...rga.localRevive(revive)];
+    for (const id of remove) {
+      const index = rga.indexOfId(id);
+      if (index >= 0) ops.push(...rga.localDelete(index, 1));
+    }
+
+    setUndoState({ canUndo: stack.canUndo, canRedo: stack.canRedo });
+    syncText();
+    if (ops.length > 0) publish(ops);
+  }, [publish, syncText]);
+
+  const redo = useCallback(() => {
+    const rga = rgaRef.current;
+    const stack = undoRef.current;
+    if (!rga || !stack || !canEdit(roleRef.current)) return;
+
+    const tx = stack.popRedo();
+    if (!tx) return;
+
+    const { revive, remove } = forwardTransaction(tx);
+    const ops: Op[] = [...rga.localRevive(revive)];
+    for (const id of remove) {
+      const index = rga.indexOfId(id);
+      if (index >= 0) ops.push(...rga.localDelete(index, 1));
+    }
+
+    setUndoState({ canUndo: stack.canUndo, canRedo: stack.canRedo });
+    syncText();
+    if (ops.length > 0) publish(ops);
+  }, [publish, syncText]);
 
   const applyMark = useCallback(
     (type: MarkType, startIndex: number, endIndex: number, value?: string) => {
@@ -976,9 +1038,13 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
     loading,
     error,
     canEdit: canEdit(role),
+    canUndo: undoState.canUndo,
+    canRedo: undoState.canRedo,
     actions: {
       applyText,
       applyMark,
+      undo,
+      redo,
       reportCursor,
       reportTyping,
       createVersion,

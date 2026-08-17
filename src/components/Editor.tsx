@@ -18,6 +18,7 @@ interface Run {
   commentIds: string[];
   resolved: boolean;
   from: number;
+  author: string | null;
 }
 
 interface EditorProps {
@@ -28,6 +29,11 @@ interface EditorProps {
   peers: PresenceState[];
   readOnly: boolean;
   activeCommentId: string | null;
+  showAuthors: boolean;
+  authorColors: Record<string, string>;
+  authorNames: Record<string, string>;
+  onUndo: () => void;
+  onRedo: () => void;
   onChange: (next: string, caret: number) => void;
   onCaret: (caret: number, selection: { start: number; end: number } | null) => void;
   onTyping: (caret: number) => void;
@@ -54,6 +60,11 @@ export function Editor({
   peers,
   readOnly,
   activeCommentId,
+  showAuthors,
+  authorColors,
+  authorNames,
+  onUndo,
+  onRedo,
   onChange,
   onCaret,
   onTyping,
@@ -99,9 +110,14 @@ export function Editor({
         (r) => i >= Math.min(r.from, r.to) && i <= Math.max(r.from, r.to),
       );
 
+      // Authorship is part of the run signature only while the heatmap is on,
+      // so normal rendering does not fragment into a span per author.
+      const author = showAuthors ? rga.authorOf(rga.idAtIndex(i) ?? '') : null;
+
       const sig = [
         ...activeMarks.map((m) => `${m.type}:${m.value ?? ''}`).sort(),
         ...activeComments.map((r) => `c:${r.c.id}:${r.c.resolved}`).sort(),
+        showAuthors ? `a:${author ?? 'unknown'}` : '',
       ].join('|');
 
       if (current && sig === signature) {
@@ -114,13 +130,14 @@ export function Editor({
           commentIds: activeComments.map((r) => r.c.id),
           resolved: activeComments.length > 0 && activeComments.every((r) => r.c.resolved),
           from: i,
+          author,
         };
         signature = sig;
       }
     }
     if (current) out.push(current);
     return out;
-  }, [rga, text, marks, comments]);
+  }, [rga, text, marks, comments, showAuthors]);
 
   /**
    * Reconcile the DOM with the CRDT after a remote change.
@@ -201,12 +218,28 @@ export function Editor({
         if (!allowed) event.preventDefault();
         return;
       }
+      // The browser's native contentEditable undo rewrites the DOM behind the
+      // CRDT's back, and the resulting diff would be applied to the *merged*
+      // text -- so it can revert a collaborator's edits. Always take it.
+      const mod = event.metaKey || event.ctrlKey;
+      if (mod && event.key.toLowerCase() === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) onRedo();
+        else onUndo();
+        return;
+      }
+      if (mod && event.key.toLowerCase() === 'y') {
+        event.preventDefault();
+        onRedo();
+        return;
+      }
+
       if (event.key === 'Enter') {
         event.preventDefault();
         insertAtCaret('\n');
       }
     },
-    [insertAtCaret, readOnly],
+    [insertAtCaret, readOnly, onUndo, onRedo],
   );
 
   const handlePaste = useCallback(
@@ -317,13 +350,21 @@ export function Editor({
               .join(' ');
 
             const color = run.marks.find((m) => m.type === 'color')?.value;
+            const authorColor = showAuthors && run.author ? authorColors[run.author] : undefined;
+            const authorName = run.author ? authorNames[run.author] : undefined;
 
             return (
               <span
                 key={`${run.from}-${run.text.length}`}
                 className={classes || undefined}
                 data-resolved={run.commentIds.length > 0 ? run.resolved : undefined}
-                style={color ? { color } : undefined}
+                title={showAuthors && authorName ? `Written by ${authorName}` : undefined}
+                style={{
+                  ...(color ? { color } : {}),
+                  ...(authorColor
+                    ? { background: `${authorColor}33`, borderRadius: 2, boxShadow: `inset 0 -2px 0 ${authorColor}` }
+                    : {}),
+                }}
                 onClick={
                   run.commentIds.length > 0 ? () => onCommentClick(run.commentIds[0]) : undefined
                 }

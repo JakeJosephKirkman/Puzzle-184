@@ -167,6 +167,36 @@ database rather than asserted in a README.
 A viewer who opens devtools and calls the Supabase client directly is rejected by
 Postgres. That script proves it, with the UI bypassed entirely.
 
+### Undo that cannot eat your collaborator's work
+
+⌘Z is intercepted rather than left to the browser. Native `contentEditable` undo
+rewrites the DOM behind the CRDT's back, and the resulting diff gets applied to
+the *merged* document — so in a shared editor it can silently revert somebody
+else's edits.
+
+Instead the undo stack records **only this session's own operations**, which
+makes it selective by construction rather than by filtering: there is no code
+path by which it could reach another person's work.
+
+Undoing a deletion needed a genuine extension to the CRDT. Inverting an insert
+is just a delete, but inverting a delete means *reviving a tombstone*, and the
+`deleted` flag was a one-way latch. It is now a last-writer-wins register
+stamped with `(lamport, site)`, so a delete and a concurrent revive resolve the
+same way on every replica. The 500-iteration convergence property test is the
+regression gate for that change.
+
+The payoff beyond correctness: reviving restores the **original character ids**,
+so a comment anchored to deleted text reattaches when the deletion is undone,
+instead of staying orphaned.
+
+### Who wrote what
+
+Every character id is `lamport:siteId`, so authorship is inherent in the
+sequence — the document already knows who typed each character. The **Authors**
+toggle colours the text by author, matching each person's cursor and avatar
+colour. A `siteId → userId` map travels in the snapshot so attribution survives
+the operation log being pruned.
+
 ### Positions that survive editing
 
 Cursors, selections and comment anchors are all stored as character ids rather

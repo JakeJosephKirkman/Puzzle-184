@@ -256,3 +256,65 @@ describe('permissions (#28)', () => {
     expect(a.result.current.text).toBe('before demotion');
   });
 });
+
+describe('undo/redo through the full stack (#M7)', () => {
+  it('undoes the local user\'s own typing', async () => {
+    const a = await openDocument('tab-a');
+    act(() => a.result.current.actions.applyText('first', 5));
+    await waitFor(() => expect(a.result.current.canUndo).toBe(true));
+
+    act(() => a.result.current.actions.undo());
+    await waitFor(() => expect(a.result.current.text).toBe(''));
+    expect(a.result.current.canRedo).toBe(true);
+  });
+
+  it('leaves a collaborator\'s text untouched, and both stay converged', async () => {
+    const a = await openDocument('tab-a', 'user-1', 'Alice');
+    const b = await openDocument('tab-b', 'user-2', 'Bob');
+    await waitFor(() => expect(b.result.current.allPeers.length).toBe(2));
+
+    act(() => a.result.current.actions.applyText('alice ', 6));
+    await waitFor(() => expect(b.result.current.text).toBe('alice '));
+
+    act(() => b.result.current.actions.applyText('alice bob', 9));
+    await waitFor(() => expect(a.result.current.text).toBe('alice bob'));
+
+    // Alice undoes. Bob's word must survive, and both must still agree.
+    act(() => a.result.current.actions.undo());
+
+    await waitFor(() => expect(a.result.current.text).toContain('bob'));
+    await waitFor(() => expect(b.result.current.text).toBe(a.result.current.text));
+    expect(a.result.current.text).not.toContain('alice');
+  });
+
+  it('propagates a revive to the other session on redo', async () => {
+    const a = await openDocument('tab-a', 'user-1', 'Alice');
+    const b = await openDocument('tab-b', 'user-2', 'Bob');
+    await waitFor(() => expect(b.result.current.allPeers.length).toBe(2));
+
+    act(() => a.result.current.actions.applyText('restore me', 10));
+    await waitFor(() => expect(b.result.current.text).toBe('restore me'));
+
+    act(() => a.result.current.actions.undo());
+    await waitFor(() => expect(b.result.current.text).toBe(''));
+
+    act(() => a.result.current.actions.redo());
+    await waitFor(() => expect(b.result.current.text).toBe('restore me'));
+  });
+
+  it('refuses to undo for a viewer', async () => {
+    const a = await openDocument('tab-a');
+    act(() => a.result.current.actions.applyText('content', 7));
+    await waitFor(() => expect(a.result.current.canUndo).toBe(true));
+
+    await act(async () => {
+      const perm = broker.current.rows('collab_permissions').find((p) => p.user_id === 'user-1');
+      perm!.role = 'viewer';
+      broker.current.emitChange('collab_permissions', 'UPDATE', perm!);
+    });
+    await waitFor(() => expect(a.result.current.canEdit).toBe(false));
+
+    act(() => a.result.current.actions.undo());
+    expect(a.result.current.text).toBe('content');
+  });
+});

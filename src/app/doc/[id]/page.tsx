@@ -29,6 +29,7 @@ export default function DocumentPage() {
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
+  const [showAuthors, setShowAuthors] = useState(false);
 
   const selectedText = selection ? collab.text.slice(selection.start, selection.end) : '';
 
@@ -47,6 +48,22 @@ export default function DocumentPage() {
     },
     [collab.rga],
   );
+
+  // Heatmap palette: a person's tint matches their cursor and avatar, so the
+  // colour means the same thing everywhere in the interface.
+  const authorColors = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const [id, profile] of Object.entries(collab.profiles)) out[id] = profile.color;
+    for (const peer of collab.allPeers) out[peer.userId] ??= peer.color;
+    return out;
+  }, [collab.profiles, collab.allPeers]);
+
+  const authorNames = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const [id, profile] of Object.entries(collab.profiles)) out[id] = profile.display_name;
+    for (const peer of collab.allPeers) out[peer.userId] ??= peer.name;
+    return out;
+  }, [collab.profiles, collab.allPeers]);
 
   const focusComment = (commentId: string) => {
     setActiveCommentId(commentId);
@@ -173,6 +190,12 @@ export default function DocumentPage() {
             <Toolbar
               disabled={!collab.canEdit}
               hasSelection={Boolean(selection)}
+              canUndo={collab.canUndo}
+              canRedo={collab.canRedo}
+              showAuthors={showAuthors}
+              onUndo={collab.actions.undo}
+              onRedo={collab.actions.redo}
+              onToggleAuthors={() => setShowAuthors((v) => !v)}
               onMark={(type: MarkType) => {
                 if (selection) collab.actions.applyMark(type, selection.start, selection.end);
               }}
@@ -195,6 +218,11 @@ export default function DocumentPage() {
                   peers={collab.peers}
                   readOnly={!collab.canEdit}
                   activeCommentId={activeCommentId}
+                  showAuthors={showAuthors}
+                  authorColors={authorColors}
+                  authorNames={authorNames}
+                  onUndo={collab.actions.undo}
+                  onRedo={collab.actions.redo}
                   onChange={collab.actions.applyText}
                   onCaret={collab.actions.reportCursor}
                   onTyping={collab.actions.reportTyping}
