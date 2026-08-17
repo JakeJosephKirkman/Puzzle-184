@@ -7,6 +7,7 @@ import { CommentsPanel } from '../../src/components/CommentsPanel';
 import { VersionHistory } from '../../src/components/VersionHistory';
 import { Toolbar } from '../../src/components/Toolbar';
 import { Editor } from '../../src/components/Editor';
+import { FollowBanner } from '../../src/components/FollowBanner';
 import { Rga } from '../../src/lib/crdt/rga';
 import type {
   ActivityRow,
@@ -482,5 +483,74 @@ describe('Editor accessibility', () => {
 
     await user.keyboard(' ');
     expect(onCommentClick).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('follow mode', () => {
+  it('offers following on other people, but not on yourself', async () => {
+    const onFollow = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <PresencePanel
+        peers={[peer({ sessionId: 'mine', name: 'Me' }), peer({ sessionId: 'theirs', name: 'Sarah Johnson' })]}
+        selfSessionId="mine"
+        followingSessionId={null}
+        onFollow={onFollow}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Follow Me' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Follow Sarah Johnson' }));
+    expect(onFollow).toHaveBeenCalledWith('theirs');
+  });
+
+  it('marks who you are following, and clicking again releases', async () => {
+    const onFollow = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <PresencePanel
+        peers={[peer({ sessionId: 'theirs', name: 'Sarah Johnson' })]}
+        selfSessionId="mine"
+        followingSessionId="theirs"
+        onFollow={onFollow}
+      />,
+    );
+    expect(screen.getByText('Following')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Follow Sarah Johnson' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await user.click(screen.getByRole('button', { name: 'Follow Sarah Johnson' }));
+    expect(onFollow).toHaveBeenCalledWith(null);
+  });
+
+  it('is keyboard reachable', async () => {
+    const onFollow = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <PresencePanel peers={[peer({ sessionId: 'theirs', name: 'Sarah Johnson' })]}
+        selfSessionId="mine" followingSessionId={null} onFollow={onFollow} />,
+    );
+    screen.getByRole('button', { name: 'Follow Sarah Johnson' }).focus();
+    await user.keyboard('{Enter}');
+    expect(onFollow).toHaveBeenCalledWith('theirs');
+  });
+
+  it('announces the mode and offers two ways out', async () => {
+    const onStop = vi.fn();
+    const user = userEvent.setup();
+    render(<FollowBanner peer={peer({ name: 'Sarah Johnson' })} onStop={onStop} />);
+
+    expect(screen.getByRole('status')).toHaveTextContent(/Following.*Sarah Johnson/);
+
+    await user.keyboard('{Escape}');
+    expect(onStop).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole('button', { name: /Stop following/ }));
+    expect(onStop).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows nothing when not following anyone', () => {
+    const { container } = render(<FollowBanner peer={null} onStop={() => {}} />);
+    expect(container).toBeEmptyDOMElement();
   });
 });

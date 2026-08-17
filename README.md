@@ -189,6 +189,22 @@ The payoff beyond correctness: reviving restores the **original character ids**,
 so a comment anchored to deleted text reattaches when the deletion is undone,
 instead of staying orphaned.
 
+### Deleting a user does not delete their work
+
+`owner_id`, `actor_id` and `author_id` are `on delete set null`, not `cascade`.
+Supabase's guidance is to prune anonymous users periodically, and under the
+original schema that would have destroyed every document they owned — along
+with their rows in the append-only log, leaving it unable to replay the document
+it had produced.
+
+`collab_profiles` also has no foreign key to `auth.users`, so a profile outlives
+the account. The work survives *and* stays attributed, rather than becoming a
+history of edits by nobody.
+
+`tests/sql/user-deletion.sql` proves it: seven checks that a deleted user's
+document, operations, comments, versions and collaborator access all survive.
+Run against the pre-fix schema, all seven fail.
+
 ### Who wrote what
 
 Every character id is `lamport:siteId`, so authorship is inherent in the
@@ -357,6 +373,10 @@ tests/e2e/           two-client browser tests
   resolved last-writer-wins, kept out of the character sequence so the sequence
   stays plain text and provably convergent. Full rich-text CRDTs (Peritext and
   similar) go further; this covers the formatting the UI offers.
+- **Identity is anonymous and browser-bound.** Clearing site data or switching
+  browser makes you a new person; your documents remain but you can no longer
+  prove they are yours. Linking an email to the anonymous account (so the same
+  user id can sign in elsewhere) is tracked as an open issue.
 - **Anyone with the link joins as an Editor**, which is what makes the document
   shareable at all — without a permission row, RLS correctly shows a visitor
   nothing. Owners can demote anyone to Viewer afterwards. For a private

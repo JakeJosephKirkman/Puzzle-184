@@ -6,6 +6,7 @@ import { Sidebar } from '@/components/Sidebar';
 import { Editor } from '@/components/Editor';
 import { Toolbar } from '@/components/Toolbar';
 import { PresencePanel, TypingIndicator } from '@/components/PresencePanel';
+import { FollowBanner } from '@/components/FollowBanner';
 import { ActivityFeed } from '@/components/ActivityFeed';
 import { CommentsPanel } from '@/components/CommentsPanel';
 import { VersionHistory } from '@/components/VersionHistory';
@@ -30,6 +31,7 @@ export default function DocumentPage() {
   const [shareOpen, setShareOpen] = useState(false);
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
   const [showAuthors, setShowAuthors] = useState(false);
+  const [followingSessionId, setFollowingSessionId] = useState<string | null>(null);
 
   const selectedText = selection ? collab.text.slice(selection.start, selection.end) : '';
 
@@ -187,6 +189,11 @@ export default function DocumentPage() {
             </span>
           </header>
 
+          <FollowBanner
+            peer={collab.peers.find((p) => p.sessionId === followingSessionId) ?? null}
+            onStop={() => setFollowingSessionId(null)}
+          />
+
           {/* Conflict notices: the merge already happened safely, this explains it. */}
           {collab.conflicts.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -246,6 +253,7 @@ export default function DocumentPage() {
                   authorNames={authorNames}
                   onUndo={collab.actions.undo}
                   onRedo={collab.actions.redo}
+                  followingSessionId={followingSessionId}
                   onChange={collab.actions.applyText}
                   onCaret={collab.actions.reportCursor}
                   onTyping={collab.actions.reportTyping}
@@ -284,7 +292,12 @@ export default function DocumentPage() {
             top: 0,
           }}
         >
-          <PresencePanel peers={collab.allPeers} selfSessionId={identity?.sessionId ?? null} />
+          <PresencePanel
+            peers={collab.allPeers}
+            selfSessionId={identity?.sessionId ?? null}
+            followingSessionId={followingSessionId}
+            onFollow={setFollowingSessionId}
+          />
           <ActivityFeed activity={collab.activity} profiles={collab.profiles} />
           <div data-comment-input>
             <CommentsPanel

@@ -13,9 +13,13 @@ import type { PresenceState } from '@/types/database';
 export function PresencePanel({
   peers,
   selfSessionId,
+  followingSessionId,
+  onFollow,
 }: {
   peers: PresenceState[];
   selfSessionId: string | null;
+  followingSessionId?: string | null;
+  onFollow?: (sessionId: string | null) => void;
 }) {
   const ordered = [...peers].sort((a, b) => {
     if (a.sessionId === selfSessionId) return -1;
@@ -42,8 +46,38 @@ export function PresencePanel({
         {ordered.map((peer) => {
           const isSelf = peer.sessionId === selfSessionId;
           const editing = peer.role !== 'viewer';
+          const following = followingSessionId === peer.sessionId;
+          const canFollow = Boolean(onFollow) && !isSelf;
+
           return (
-            <div key={peer.sessionId} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div
+              key={peer.sessionId}
+              role={canFollow ? 'button' : undefined}
+              tabIndex={canFollow ? 0 : undefined}
+              aria-pressed={canFollow ? following : undefined}
+              aria-label={canFollow ? `Follow ${peer.name}` : undefined}
+              onClick={canFollow ? () => onFollow?.(following ? null : peer.sessionId) : undefined}
+              onKeyDown={
+                canFollow
+                  ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onFollow?.(following ? null : peer.sessionId);
+                      }
+                    }
+                  : undefined
+              }
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                cursor: canFollow ? 'pointer' : undefined,
+                background: following ? 'var(--accent-soft)' : undefined,
+                borderRadius: 8,
+                padding: following ? '4px 6px' : undefined,
+                margin: following ? '-4px -6px' : undefined,
+              }}
+            >
               <Avatar name={peer.name} color={peer.color} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div
@@ -62,7 +96,7 @@ export function PresencePanel({
                 </div>
               </div>
               <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                {editing ? 'Editing' : 'Viewing'}
+                {following ? 'Following' : editing ? 'Editing' : 'Viewing'}
               </span>
               <span
                 style={{

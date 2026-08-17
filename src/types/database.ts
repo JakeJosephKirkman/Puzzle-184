@@ -15,7 +15,8 @@ export interface Profile {
 export interface DocumentRow {
   id: string;
   title: string;
-  owner_id: string;
+  /** Null once the owner's account is deleted -- the document itself survives. */
+  owner_id: string | null;
   content: string;
   crdt_state: RgaSnapshot;
   snapshot_version: number;
@@ -37,7 +38,8 @@ export interface PermissionRow {
 export interface OperationRow {
   seq: number;
   document_id: string;
-  actor_id: string;
+  /** Null once the author's account is deleted; the operation is never removed. */
+  actor_id: string | null;
   site_id: string;
   lamport: number;
   op_id: string;
@@ -75,7 +77,7 @@ export interface CommentRow {
   id: string;
   document_id: string;
   parent_id: string | null;
-  author_id: string;
+  author_id: string | null;
   body: string;
   anchor: CommentAnchor | null;
   resolved: boolean;

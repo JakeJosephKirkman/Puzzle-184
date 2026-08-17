@@ -34,6 +34,7 @@ interface EditorProps {
   authorNames: Record<string, string>;
   onUndo: () => void;
   onRedo: () => void;
+  followingSessionId?: string | null;
   onChange: (next: string, caret: number) => void;
   onCaret: (caret: number, selection: { start: number; end: number } | null) => void;
   onTyping: (caret: number) => void;
@@ -65,6 +66,7 @@ export function Editor({
   authorNames,
   onUndo,
   onRedo,
+  followingSessionId,
   onChange,
   onCaret,
   onTyping,
@@ -167,6 +169,30 @@ export function Editor({
   useEffect(() => {
     setOverlayTick((t) => t + 1);
   }, [text, peers]);
+
+  /**
+   * Keep a followed collaborator's caret in view.
+   *
+   * Deliberately only scrolls when their caret is actually off-screen, so
+   * following someone editing within the visible area does not jitter the page.
+   */
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !rga || !followingSessionId) return;
+
+    const peer = peers.find((p) => p.sessionId === followingSessionId);
+    if (!peer?.cursor) return;
+
+    const index = peer.cursor.afterId ? rga.indexOfId(peer.cursor.afterId) + 1 : 0;
+    const box = boxForOffset(el, index);
+    if (!box) return;
+
+    const rect = el.getBoundingClientRect();
+    const absoluteTop = rect.top + box.top - el.scrollTop;
+    if (absoluteTop < 80 || absoluteTop > window.innerHeight - 120) {
+      window.scrollTo({ top: window.scrollY + absoluteTop - window.innerHeight / 2, behavior: 'smooth' });
+    }
+  }, [followingSessionId, peers, rga, text]);
 
   const rememberCaret = useCallback(
     (offset: number) => {

@@ -499,7 +499,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
           if (op.site_id === site) return; // our own write coming back
 
           rga.observeLamport(op.lamport);
-          rga.setAuthor(op.site_id, op.actor_id);
+          if (op.actor_id) rga.setAuthor(op.site_id, op.actor_id);
           const payload = op.op as Op | { mark: Mark };
           if ('mark' in payload) {
             if (rga.applyMark(payload.mark)) syncText();
@@ -509,7 +509,7 @@ export function useCollabDocument(documentId: string, identity: Identity | null)
           const applied = rga.applyRemote([payload]);
           if (applied.length > 0) {
             syncText();
-            noteConcurrentEdit(applied, op.actor_id);
+            noteConcurrentEdit(applied, op.actor_id ?? '');
           }
         },
       )

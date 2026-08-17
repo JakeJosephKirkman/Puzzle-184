@@ -93,7 +93,7 @@ exception when duplicate_object then null; end $$;
 -- ---------------------------------------------------------------------------
 
 create table if not exists public.collab_profiles (
-  id           uuid primary key references auth.users (id) on delete cascade,
+  id           uuid primary key,
   display_name text        not null,
   color        text        not null,
   created_at   timestamptz not null default now(),
@@ -107,7 +107,7 @@ create table if not exists public.collab_profiles (
 create table if not exists public.collab_documents (
   id               uuid        primary key default gen_random_uuid(),
   title            text        not null default 'Untitled document',
-  owner_id         uuid        not null references auth.users (id) on delete cascade,
+  owner_id         uuid        references auth.users (id) on delete set null,
   content          text        not null default '',
   crdt_state       jsonb       not null default '{"nodes":[],"marks":[]}'::jsonb,
   -- Optimistic concurrency guard. Bumped only via save_document_snapshot().
@@ -145,7 +145,7 @@ create index if not exists collab_permissions_user_idx on public.collab_permissi
 create table if not exists public.collab_operations (
   seq         bigserial   primary key,
   document_id uuid        not null references public.collab_documents (id) on delete cascade,
-  actor_id    uuid        not null references auth.users (id) on delete cascade,
+  actor_id    uuid        references auth.users (id) on delete set null,
   site_id     text        not null,
   lamport     bigint      not null,
   op_id       text        not null,
@@ -188,7 +188,7 @@ create table if not exists public.collab_comments (
   id          uuid        primary key default gen_random_uuid(),
   document_id uuid        not null references public.collab_documents (id) on delete cascade,
   parent_id   uuid        references public.collab_comments (id) on delete cascade,
-  author_id   uuid        not null references auth.users (id) on delete cascade,
+  author_id   uuid        references auth.users (id) on delete set null,
   body        text        not null,
   -- { startId, endId, quotedText } -- CRDT character ids, not integer offsets,
   -- so the anchor tracks its text as the document is edited around it.
@@ -225,6 +225,67 @@ create index if not exists collab_activity_doc_idx
 create unique index if not exists collab_activity_edit_bucket_idx
   on public.collab_activity (document_id, actor_id, bucket)
   where kind = 'edit';
+
+-- ---------------------------------------------------------------------------
+-- Upgrade: stop user deletion from destroying documents
+--
+-- These columns were originally `on delete cascade` against auth.users, which
+-- meant deleting a user deleted their documents, their rows in the append-only
+-- operation log, and their comments. Supabase's own guidance is to prune
+-- anonymous users periodically -- following it would have silently destroyed
+-- content, and left the operation log unable to replay to the document it
+-- produced.
+--
+-- Authorship becomes null instead. The work survives; only the attribution is
+-- lost, and even that is usually recoverable because collab_profiles now
+-- outlives the auth account (its FK is dropped below), so the name is retained
+-- for the activity feed and the authorship heatmap.
+--
+-- Written as guarded ALTERs because this schema is already applied to live
+-- projects: a fresh install is a no-op, an existing install is repaired.
+-- ---------------------------------------------------------------------------
+
+do $$
+declare
+  t record;
+begin
+  for t in select * from (values
+      ('collab_documents',  'owner_id'),
+      ('collab_operations', 'actor_id'),
+      ('collab_comments',   'author_id')
+    ) as v(tbl, col)
+  loop
+    if to_regclass('public.' || t.tbl) is null then continue; end if;
+
+    -- Drop whichever FK currently governs the column, whatever it is named.
+    execute (
+      select coalesce(string_agg(
+        format('alter table public.%I drop constraint %I', t.tbl, con.conname), '; '), 'select 1')
+      from pg_constraint con
+      join pg_attribute att
+        on att.attrelid = con.conrelid and att.attnum = any (con.conkey)
+      where con.conrelid = to_regclass('public.' || t.tbl)
+        and con.contype = 'f'
+        and att.attname = t.col
+    );
+
+    execute format('alter table public.%I alter column %I drop not null', t.tbl, t.col);
+    execute format(
+      'alter table public.%I add constraint %I foreign key (%I) references auth.users (id) on delete set null',
+      t.tbl, t.tbl || '_' || t.col || '_fkey', t.col);
+  end loop;
+
+  -- Profiles outlive the auth account so history stays readable rather than
+  -- becoming a wall of entries attributed to nobody.
+  if to_regclass('public.collab_profiles') is not null then
+    execute (
+      select coalesce(string_agg(
+        format('alter table public.collab_profiles drop constraint %I', conname), '; '), 'select 1')
+      from pg_constraint
+      where conrelid = to_regclass('public.collab_profiles') and contype = 'f'
+    );
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- Realtime publication

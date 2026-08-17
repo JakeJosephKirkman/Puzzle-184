@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Avatar } from './Avatar';
 import { relativeTime } from '@/lib/time';
+import { colorOfAuthor, nameOfAuthor } from '@/lib/identity';
 import type { CommentRow, Profile } from '@/types/database';
 
 interface Props {
@@ -60,7 +61,8 @@ export function CommentsPanel({
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: 360, overflowY: 'auto' }}>
         {visible.map((thread) => {
-          const author = profiles[thread.author_id];
+          const authorName = nameOfAuthor(thread.author_id, profiles);
+          const authorColor = colorOfAuthor(thread.author_id, profiles);
           const orphaned = isOrphaned(thread);
           return (
             <div
@@ -92,16 +94,10 @@ export function CommentsPanel({
               )}
 
               <div style={{ display: 'flex', gap: 8 }}>
-                <Avatar
-                  name={author?.display_name ?? '?'}
-                  color={author?.color ?? '#6b7488'}
-                  size={24}
-                />
+                <Avatar name={authorName} color={authorColor} size={24} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
-                    <span style={{ fontSize: 12.5, fontWeight: 600 }}>
-                      {author?.display_name ?? 'Someone'}
-                    </span>
+                    <span style={{ fontSize: 12.5, fontWeight: 600 }}>{authorName}</span>
                     <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>
                       {relativeTime(thread.created_at)}
                     </span>
@@ -113,22 +109,17 @@ export function CommentsPanel({
               </div>
 
               {repliesOf(thread.id).map((reply) => {
-                const replyAuthor = profiles[reply.author_id];
+                const replyName = nameOfAuthor(reply.author_id, profiles);
+                const replyColor = colorOfAuthor(reply.author_id, profiles);
                 return (
                   <div
                     key={reply.id}
                     style={{ display: 'flex', gap: 8, marginTop: 10, marginLeft: 16 }}
                   >
-                    <Avatar
-                      name={replyAuthor?.display_name ?? '?'}
-                      color={replyAuthor?.color ?? '#6b7488'}
-                      size={22}
-                    />
+                    <Avatar name={replyName} color={replyColor} size={22} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
-                        <span style={{ fontSize: 12, fontWeight: 600 }}>
-                          {replyAuthor?.display_name ?? 'Someone'}
-                        </span>
+                        <span style={{ fontSize: 12, fontWeight: 600 }}>{replyName}</span>
                         <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>
                           {relativeTime(reply.created_at)}
                         </span>

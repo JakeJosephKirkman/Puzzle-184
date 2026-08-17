@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
-import { colorForUser, generateDisplayName, getSessionId } from '@/lib/identity';
+import { claimSessionId, colorForUser, generateDisplayName } from '@/lib/identity';
 import type { Profile } from '@/types/database';
 
 export interface Identity {
@@ -27,6 +27,7 @@ export function useIdentity() {
 
   useEffect(() => {
     let cancelled = false;
+    let release: (() => void) | null = null;
 
     (async () => {
       try {
@@ -66,8 +67,12 @@ export function useIdentity() {
           profile = created as Profile;
         }
 
+        // Resolves a duplicated tab to a distinct id before presence starts.
+        const claim = await claimSessionId();
+        release = claim.release;
+
         if (!cancelled) {
-          setIdentity({ user, profile, sessionId: getSessionId() });
+          setIdentity({ user, profile, sessionId: claim.sessionId });
         }
       } catch (e) {
         if (!cancelled) {
@@ -82,6 +87,7 @@ export function useIdentity() {
 
     return () => {
       cancelled = true;
+      release?.();
     };
   }, []);
 
