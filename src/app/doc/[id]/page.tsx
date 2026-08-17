@@ -23,7 +23,10 @@ export default function DocumentPage() {
   const params = useParams<{ id: string }>();
   const documentId = params.id;
 
-  const { identity, loading: authLoading, error: authError, rename } = useIdentity();
+  const {
+    identity, loading: authLoading, error: authError, rename,
+    account, accountError, accountBusy, claimAccount, sendSignInLink, signOut,
+  } = useIdentity();
   const collab = useCollabDocument(documentId, identity);
 
   const [selection, setSelection] = useState<{ start: number; end: number } | null>(null);
@@ -107,6 +110,13 @@ export default function DocumentPage() {
         connection={collab.connection}
         pending={collab.pendingCount}
         onRename={rename}
+        account={account}
+        accountError={accountError}
+        accountBusy={accountBusy}
+        ownedDocumentCount={collab.role === 'owner' ? 1 : 0}
+        onClaimAccount={claimAccount}
+        onSignInLink={sendSignInLink}
+        onSignOut={signOut}
       />
 
       {/*

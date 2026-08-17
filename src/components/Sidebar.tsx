@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { Avatar } from './Avatar';
 import { SyncStatus } from './SyncStatus';
+import { AccountPanel } from './AccountPanel';
+import type { AccountState } from '@/lib/collab/useIdentity';
 import type { ConnectionState } from '@/types/database';
 import type { Identity } from '@/lib/collab/useIdentity';
 
@@ -17,6 +19,13 @@ export function Sidebar({
   pending,
   onNewDocument,
   onRename,
+  account,
+  accountError,
+  accountBusy,
+  ownedDocumentCount = 0,
+  onClaimAccount,
+  onSignInLink,
+  onSignOut,
   active = 'Documents',
 }: {
   identity: Identity | null;
@@ -24,6 +33,13 @@ export function Sidebar({
   pending?: number;
   onNewDocument?: () => void;
   onRename?: (name: string) => void;
+  account?: AccountState;
+  accountError?: string | null;
+  accountBusy?: boolean;
+  ownedDocumentCount?: number;
+  onClaimAccount?: (email: string) => Promise<boolean>;
+  onSignInLink?: (email: string) => Promise<boolean>;
+  onSignOut?: () => void;
   active?: string;
 }) {
   return (
@@ -106,6 +122,20 @@ export function Sidebar({
       <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
         {connection && <SyncStatus connection={connection} pending={pending ?? 0} />}
 
+        {identity && account && onClaimAccount && onSignInLink && onSignOut && (
+          <div className="sidebar-label" style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+            <AccountPanel
+              account={account}
+              error={accountError ?? null}
+              busy={accountBusy ?? false}
+              ownedDocumentCount={ownedDocumentCount}
+              onClaim={onClaimAccount}
+              onSignIn={onSignInLink}
+              onSignOut={onSignOut}
+            />
+          </div>
+        )}
+
         {identity && (
           <div
             style={{
@@ -141,7 +171,7 @@ export function Sidebar({
                   {identity.profile.display_name}
                 </div>
               )}
-              <div style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>
+              <div className="sidebar-label" style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>
                 session {identity.sessionId.slice(0, 8)}
               </div>
             </div>

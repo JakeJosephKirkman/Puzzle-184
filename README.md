@@ -189,6 +189,25 @@ The payoff beyond correctness: reviving restores the **original character ids**,
 so a comment anchored to deleted text reattaches when the deletion is undone,
 instead of staying orphaned.
 
+### Accounts, without a login wall
+
+You start anonymously — one click, no form — because a sign-in wall would ruin
+the demo and most of the value here is visible in ten seconds.
+
+But an identity that exists only in one browser's localStorage cannot be reached
+from your phone and cannot be recovered if that storage is cleared. So **Save
+your account** attaches an email to the account you already have, via
+`updateUser({ email })`. The user id never changes, which is the whole point:
+every document, permission, operation and comment carries over because nothing
+moved. There is no migration step to get wrong.
+
+`signInWithOtp` then reaches that same id from another browser.
+
+One trap the UI guards: signing in on a device that already has an anonymous
+user *abandons* that user, and any documents only they own become unreachable —
+the exact failure accounts are meant to fix. If the current guest owns anything,
+it says so and makes you acknowledge it before continuing.
+
 ### Deleting a user does not delete their work
 
 `owner_id`, `actor_id` and `author_id` are `on delete set null`, not `cascade`.
@@ -271,6 +290,9 @@ silently skipping the create and failing confusingly later.
 ### 3. Enable anonymous sign-ins
 
 Authentication → Providers → **Anonymous** → enable.
+
+For the optional email upgrade, also add your app's URL under Authentication →
+URL Configuration → Redirect URLs, including `http://localhost:3000/auth/callback`.
 
 Anonymous sign-in still produces a real `auth.uid()`, which is what every RLS
 policy tests against.
@@ -373,10 +395,6 @@ tests/e2e/           two-client browser tests
   resolved last-writer-wins, kept out of the character sequence so the sequence
   stays plain text and provably convergent. Full rich-text CRDTs (Peritext and
   similar) go further; this covers the formatting the UI offers.
-- **Identity is anonymous and browser-bound.** Clearing site data or switching
-  browser makes you a new person; your documents remain but you can no longer
-  prove they are yours. Linking an email to the anonymous account (so the same
-  user id can sign in elsewhere) is tracked as an open issue.
 - **Anyone with the link joins as an Editor**, which is what makes the document
   shareable at all — without a permission row, RLS correctly shows a visitor
   nothing. Owners can demote anyone to Viewer afterwards. For a private

@@ -14,9 +14,37 @@ interface DocumentWithRole extends DocumentRow {
   role: DocRole | null;
 }
 
+/** Reports what happened when an emailed link was followed. */
+function AuthNotice() {
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    const status = new URLSearchParams(window.location.search).get('auth');
+    if (status === 'link-expired') {
+      setNotice('That sign-in link has expired or was already used. Request a new one.');
+    } else if (status === 'missing-code') {
+      setNotice('That link was incomplete. Request a new one.');
+    }
+  }, []);
+
+  if (!notice) return null;
+  return (
+    <div
+      role="alert"
+      className="panel"
+      style={{ padding: 12, borderColor: 'var(--amber)', marginBottom: 18, fontSize: 12.5 }}
+    >
+      {notice}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const router = useRouter();
-  const { identity, loading, error, rename } = useIdentity();
+  const {
+    identity, loading, error, rename,
+    account, accountError, accountBusy, claimAccount, sendSignInLink, signOut,
+  } = useIdentity();
   const [documents, setDocuments] = useState<DocumentWithRole[]>([]);
   const [busy, setBusy] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
@@ -81,7 +109,18 @@ export default function Dashboard() {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <Sidebar identity={identity} onNewDocument={createDocument} onRename={rename} />
+      <Sidebar
+        identity={identity}
+        onNewDocument={createDocument}
+        onRename={rename}
+        account={account}
+        accountError={accountError}
+        accountBusy={accountBusy}
+        ownedDocumentCount={documents.filter((d) => d.role === 'owner').length}
+        onClaimAccount={claimAccount}
+        onSignInLink={sendSignInLink}
+        onSignOut={signOut}
+      />
 
       <main style={{ flex: 1, padding: '32px 36px', maxWidth: 1000 }}>
         <h1 style={{ margin: '0 0 6px', fontSize: 24 }}>Documents</h1>
@@ -90,6 +129,8 @@ export default function Dashboard() {
         </p>
 
         {loading && <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Signing you in…</p>}
+
+        <AuthNotice />
 
         {(error || listError) && (
           <div

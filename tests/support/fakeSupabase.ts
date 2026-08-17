@@ -59,6 +59,26 @@ export class FakeBroker {
     else fn();
   }
 
+  users = new Map<string, Row>();
+  authListeners: ((event: string, session: { user: Row } | null) => void)[] = [];
+
+  currentUser(id: string): Row {
+    if (!this.users.has(id)) this.users.set(id, { id, is_anonymous: true, email: null });
+    return this.users.get(id)!;
+  }
+
+  /** Whether some *other* user already owns this email. */
+  emailOwner(email: string, exceptId: string | null): boolean {
+    for (const [id, user] of this.users) {
+      if (id !== exceptId && user.email === email) return true;
+    }
+    return false;
+  }
+
+  emitAuthChange(user: Row) {
+    for (const cb of this.authListeners) cb('USER_UPDATED', { user });
+  }
+
   rows(table: string): Row[] {
     if (!this.tables.has(table)) this.tables.set(table, []);
     return this.tables.get(table)!;
@@ -294,8 +314,58 @@ export function createFakeSupabase(broker: FakeBroker, userId = 'user-1') {
   return {
     __broker: broker,
     auth: {
-      async getUser() { return { data: { user: { id: userId } } }; },
-      async signInAnonymously() { return { data: { user: { id: userId } }, error: null }; },
+      async getUser() { return { data: { user: broker.currentUser(userId) } }; },
+      async signInAnonymously() {
+        return { data: { user: broker.currentUser(userId) }, error: null };
+      },
+
+      /**
+       * Attaching an email must NOT mint a new user -- the whole feature rests
+       * on the id surviving, so the double models that precisely rather than
+       * returning a convenient stub.
+       */
+      async updateUser({ email }: { email: string }) {
+        if (broker.emailOwner(email, userId)) {
+          return { data: null, error: { message: 'Email address already registered' } };
+        }
+        const user = broker.currentUser(userId);
+        user.email = email;
+        user.is_anonymous = true; // still anonymous until the link is followed
+        return { data: { user }, error: null };
+      },
+
+      async signInWithOtp({ email }: { email: string }) {
+        if (!broker.emailOwner(email, null)) {
+          return { data: null, error: { message: 'Invalid email or user not found' } };
+        }
+        return { data: {}, error: null };
+      },
+
+      /** Simulates the emailed link being followed. */
+      async verifyOtp() {
+        const user = broker.currentUser(userId);
+        user.is_anonymous = false;
+        broker.emitAuthChange(user);
+        return { data: { user }, error: null };
+      },
+
+      async signOut() {
+        broker.users.delete(userId);
+        return { error: null };
+      },
+
+      onAuthStateChange(cb: (event: string, session: { user: Row } | null) => void) {
+        broker.authListeners.push(cb);
+        return {
+          data: {
+            subscription: {
+              unsubscribe: () => {
+                broker.authListeners = broker.authListeners.filter((l) => l !== cb);
+              },
+            },
+          },
+        };
+      },
     },
     from(table: string) { return new Query(broker, table) as any; },
     channel(topic: string, opts?: any) {
