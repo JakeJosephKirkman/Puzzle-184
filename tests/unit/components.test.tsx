@@ -6,6 +6,8 @@ import { ActivityFeed } from '../../src/components/ActivityFeed';
 import { CommentsPanel } from '../../src/components/CommentsPanel';
 import { VersionHistory } from '../../src/components/VersionHistory';
 import { Toolbar } from '../../src/components/Toolbar';
+import { Editor } from '../../src/components/Editor';
+import { Rga } from '../../src/lib/crdt/rga';
 import type {
   ActivityRow,
   CommentRow,
@@ -412,5 +414,58 @@ describe('Toolbar', () => {
     // Available to viewers too -- reading who wrote what is not an edit.
     await user.click(screen.getByRole('button', { name: 'Authors' }));
     expect(onToggleAuthors).toHaveBeenCalled();
+  });
+});
+
+describe('Editor accessibility', () => {
+  const noop = () => {};
+
+  function renderEditor(over: Record<string, unknown> = {}) {
+    const rga = new Rga('a');
+    rga.localInsert(0, 'commented sentence here');
+    const anchorStart = rga.idAtIndex(0)!;
+    const anchorEnd = rga.idAtIndex(8)!;
+
+    const props = {
+      rga, text: rga.text, marks: [], peers: [], readOnly: false,
+      activeCommentId: null, showAuthors: false, authorColors: {}, authorNames: {},
+      onUndo: noop, onRedo: noop, onChange: noop, onCaret: noop, onTyping: noop,
+      onSelectionChange: noop, onCommentClick: noop,
+      comments: [comment({ anchor: { startId: anchorStart, endId: anchorEnd, quotedText: 'commented' } })],
+      ...over,
+    };
+    return { ...render(<Editor {...(props as never)} />), anchorStart };
+  }
+
+  it('exposes the document as a labelled multiline textbox', () => {
+    renderEditor();
+    const box = screen.getByRole('textbox', { name: 'Document body' });
+    expect(box).toHaveAttribute('aria-multiline', 'true');
+    expect(box).toHaveAttribute('aria-readonly', 'false');
+  });
+
+  it('marks itself read-only for a viewer', () => {
+    renderEditor({ readOnly: true });
+    expect(screen.getByRole('textbox', { name: 'Document body' })).toHaveAttribute(
+      'aria-readonly',
+      'true',
+    );
+    expect(screen.getByText(/view-only access/)).toBeInTheDocument();
+  });
+
+  it('makes commented text reachable and activatable by keyboard', async () => {
+    const onCommentClick = vi.fn();
+    const user = userEvent.setup();
+    renderEditor({ onCommentClick });
+
+    const anchor = screen.getByRole('button', { name: /Commented text/ });
+    expect(anchor).toHaveAttribute('tabIndex', '0');
+
+    anchor.focus();
+    await user.keyboard('{Enter}');
+    expect(onCommentClick).toHaveBeenCalled();
+
+    await user.keyboard(' ');
+    expect(onCommentClick).toHaveBeenCalledTimes(2);
   });
 });

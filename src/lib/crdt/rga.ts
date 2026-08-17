@@ -64,6 +64,29 @@ export class Rga {
   private textCache: string | null = null;
 
   /**
+   * Visible-sequence index, rebuilt lazily alongside the text cache.
+   *
+   * Position lookups happen a lot per render -- once per mark, once per comment,
+   * twice per remote cursor, and (with the authorship heatmap on) once per
+   * character. Scanning the node array for each of those is O(n) a piece, which
+   * made rendering O(n^2) overall and got worse as tombstones accumulated.
+   * Building the mapping once per change makes every lookup O(1).
+   */
+  private visibleIds: CharId[] | null = null;
+  private visibleIndexById: Map<CharId, number> | null = null;
+
+  /**
+   * Where the previous integration landed.
+   *
+   * Consecutive inserts almost always chain -- each character's origin is the
+   * one just placed, whether that is someone typing or a paste arriving as a
+   * run. Remembering the last position turns those into an O(1) lookup instead
+   * of rebuilding the whole position map per character, which is what made
+   * pasting a large document take tens of seconds.
+   */
+  private lastIntegrated: { id: CharId; index: number } | null = null;
+
+  /**
    * Which user each site id belongs to.
    *
    * Every character id already encodes the site that produced it, so authorship
@@ -104,6 +127,12 @@ export class Rga {
     return this.order.filter((n) => !n.deleted);
   }
 
+  /** Number of visible characters, without materialising the text. */
+  get visibleLength(): number {
+    this.ensureVisibleIndex();
+    return this.visibleIds!.length;
+  }
+
   /** Number of operations still buffered awaiting a missing dependency. */
   get pendingCount(): number {
     let n = 0;
@@ -122,24 +151,15 @@ export class Rga {
   indexOfId(id: CharId): number {
     const target = this.byId.get(id);
     if (!target || target.deleted) return -1;
-    let visible = 0;
-    for (const n of this.order) {
-      if (n === target) return visible;
-      if (!n.deleted) visible++;
-    }
-    return -1;
+    this.ensureVisibleIndex();
+    return this.visibleIndexById!.get(id) ?? -1;
   }
 
   /** Id of the visible character at `index`, or null if out of range. */
   idAtIndex(index: number): CharId | null {
     if (index < 0) return null;
-    let visible = 0;
-    for (const n of this.order) {
-      if (n.deleted) continue;
-      if (visible === index) return n.id;
-      visible++;
-    }
-    return null;
+    this.ensureVisibleIndex();
+    return this.visibleIds![index] ?? null;
   }
 
   /** Id of the character immediately left of a caret at `index` (null at start). */
@@ -312,9 +332,16 @@ export class Rga {
 
   /** Splice a node into document order using the RGA integration rule. */
   private integrate(node: RgaNode): void {
-    this.ensurePositions();
+    let leftPos: number;
 
-    const leftPos = node.left === null ? -1 : (this.posMap.get(node.left) ?? -1);
+    if (node.left !== null && this.lastIntegrated?.id === node.left) {
+      // Chained insert: we placed the origin ourselves a moment ago.
+      leftPos = this.lastIntegrated.index;
+    } else {
+      this.ensurePositions();
+      leftPos = node.left === null ? -1 : (this.posMap.get(node.left) ?? -1);
+    }
+
     let i = leftPos + 1;
 
     // Skip nodes with a greater id: concurrent inserts that sort before this
@@ -326,6 +353,7 @@ export class Rga {
     this.order.splice(i, 0, node);
     this.byId.set(node.id, node);
     this.posDirty = true;
+    this.lastIntegrated = { id: node.id, index: i };
   }
 
   private buffer(dep: CharId, op: Op): void {
@@ -354,10 +382,26 @@ export class Rga {
 
   private invalidate(): void {
     this.textCache = null;
+    this.visibleIds = null;
+    this.visibleIndexById = null;
+  }
+
+  private ensureVisibleIndex(): void {
+    if (this.visibleIds && this.visibleIndexById) return;
+    const ids: CharId[] = [];
+    const byIndex = new Map<CharId, number>();
+    for (const n of this.order) {
+      if (n.deleted) continue;
+      byIndex.set(n.id, ids.length);
+      ids.push(n.id);
+    }
+    this.visibleIds = ids;
+    this.visibleIndexById = byIndex;
   }
 
   private ensurePositions(): void {
     if (!this.posDirty) return;
+    this.lastIntegrated = null;
     this.posMap.clear();
     for (let i = 0; i < this.order.length; i++) {
       this.posMap.set(this.order[i].id, i);

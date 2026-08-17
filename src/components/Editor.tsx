@@ -330,6 +330,11 @@ export function Editor({
         contentEditable={!readOnly}
         suppressContentEditableWarning
         spellCheck={false}
+        role="textbox"
+        aria-multiline="true"
+        aria-readonly={readOnly}
+        aria-label="Document body"
+        tabIndex={0}
         onInput={handleInput}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
@@ -358,6 +363,25 @@ export function Editor({
                 key={`${run.from}-${run.text.length}`}
                 className={classes || undefined}
                 data-resolved={run.commentIds.length > 0 ? run.resolved : undefined}
+                // Commented text is reachable and activatable by keyboard, not
+                // just by mouse.
+                role={run.commentIds.length > 0 ? 'button' : undefined}
+                tabIndex={run.commentIds.length > 0 ? 0 : undefined}
+                aria-label={
+                  run.commentIds.length > 0
+                    ? `Commented text: ${run.text.slice(0, 40)}. Activate to open the thread.`
+                    : undefined
+                }
+                onKeyDown={
+                  run.commentIds.length > 0
+                    ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onCommentClick(run.commentIds[0]);
+                        }
+                      }
+                    : undefined
+                }
                 title={showAuthors && authorName ? `Written by ${authorName}` : undefined}
                 style={{
                   ...(color ? { color } : {}),

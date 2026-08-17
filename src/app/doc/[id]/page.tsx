@@ -65,6 +65,17 @@ export default function DocumentPage() {
     return out;
   }, [collab.profiles, collab.allPeers]);
 
+  // Collapsed to a single sentence so assistive tech is informed, not flooded.
+  const liveAnnouncement = useMemo(() => {
+    const others = collab.peers.length;
+    const typing = collab.peers.filter((p) => p.typing).map((p) => p.name);
+    const parts: string[] = [];
+    if (others > 0) parts.push(`${others} other ${others === 1 ? 'person' : 'people'} editing`);
+    if (typing.length > 0) parts.push(`${typing.join(' and ')} typing`);
+    if (collab.connection !== 'connected') parts.push(`Connection ${collab.connection}`);
+    return parts.join('. ');
+  }, [collab.peers, collab.connection]);
+
   const focusComment = (commentId: string) => {
     setActiveCommentId(commentId);
     setTimeout(() => setActiveCommentId((c) => (c === commentId ? null : c)), 1600);
@@ -88,7 +99,7 @@ export default function DocumentPage() {
         : `Last saved ${clockTime(collab.lastSavedAt)}`;
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
+    <div className="app-shell">
       <Sidebar
         identity={identity}
         connection={collab.connection}
@@ -96,10 +107,22 @@ export default function DocumentPage() {
         onRename={rename}
       />
 
-      <main style={{ flex: 1, display: 'flex', minWidth: 0 }}>
-        <section style={{ flex: 1, minWidth: 0, padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/*
+        Collaboration is conveyed almost entirely by colour and motion -- remote
+        carets, presence dots, typing pulses. None of that reaches a screen
+        reader, so the same signal is announced politely here.
+      */}
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {liveAnnouncement}
+      </div>
+
+      <main className="doc-main">
+        <section
+          className="doc-section"
+          style={{ flex: 1, minWidth: 0, padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}
+        >
           {/* Header */}
-          <header style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+          <header className="doc-header" style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <input
                 value={titleDraft ?? collab.doc?.title ?? ''}
@@ -245,6 +268,8 @@ export default function DocumentPage() {
 
         {/* Right rail */}
         <aside
+          className="doc-rail"
+          aria-label="Collaboration panels"
           style={{
             width: 320,
             flexShrink: 0,

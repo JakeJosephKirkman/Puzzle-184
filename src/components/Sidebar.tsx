@@ -28,6 +28,8 @@ export function Sidebar({
 }) {
   return (
     <aside
+      className="app-sidebar"
+      aria-label="Workspace navigation"
       style={{
         width: 216,
         flexShrink: 0,
@@ -67,7 +69,9 @@ export function Sidebar({
         >
           C
         </span>
-        <span style={{ fontWeight: 700, fontSize: 15 }}>CollabSpace</span>
+        <span className="sidebar-label" style={{ fontWeight: 700, fontSize: 15 }}>
+          CollabSpace
+        </span>
       </Link>
 
       {onNewDocument && (
@@ -93,8 +97,8 @@ export function Sidebar({
               background: active === item.label ? 'var(--surface-3)' : 'transparent',
             }}
           >
-            <span style={{ fontSize: 13 }}>{item.icon}</span>
-            {item.label}
+            <span style={{ fontSize: 13 }} aria-hidden="true">{item.icon}</span>
+            <span className="sidebar-label">{item.label}</span>
           </Link>
         ))}
       </nav>
